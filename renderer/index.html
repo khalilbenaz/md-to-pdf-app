@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<title>MD to PDF</title>
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="../node_modules/katex/dist/katex.min.css" />
+<link rel="stylesheet" id="hljs-theme" href="../node_modules/highlight.js/styles/github.min.css" />
+</head>
+<body>
+  <header>
+    <button id="btn-open" title="Ouvrir (Cmd+O)">📄 Ouvrir</button>
+    <button id="btn-open-folder" title="Ouvrir dossier (Cmd+Shift+O)">📁 Dossier</button>
+    <button id="btn-save" title="Enregistrer (Cmd+S)">💾 Enregistrer</button>
+    <button id="btn-export" title="Exporter PDF (Cmd+E)">📕 PDF</button>
+    <button id="btn-export-html" title="Exporter HTML">🌐 HTML</button>
+    <span class="sep"></span>
+    <label class="toggle"><input type="checkbox" id="toggle-editor" checked /> Code</label>
+    <label class="toggle"><input type="checkbox" id="toggle-sync" checked /> Sync</label>
+    <label class="toggle"><input type="checkbox" id="toggle-autosave" /> Autosave</label>
+    <button id="btn-theme" title="Thème (Cmd+T)">🌓</button>
+    <span id="file-name">Sans titre</span>
+  </header>
+
+  <div id="tabs"></div>
+
+  <main>
+    <aside id="sidebar">
+      <div class="sidebar-tabs">
+        <button data-tab="files" class="active">Fichiers</button>
+        <button data-tab="toc">TOC</button>
+        <button data-tab="search">Recherche</button>
+      </div>
+      <div id="tab-files" class="tab-panel active">
+        <div id="folder-name" class="folder-name">Aucun dossier</div>
+        <div id="file-tree"></div>
+      </div>
+      <div id="tab-toc" class="tab-panel">
+        <div id="toc"></div>
+      </div>
+      <div id="tab-search" class="tab-panel">
+        <input type="text" id="search-input" placeholder="Rechercher dans le dossier…" />
+        <div id="search-results"></div>
+      </div>
+    </aside>
+    <div id="editor"></div>
+    <div id="preview" class="markdown-body"></div>
+  </main>
+
+  <footer id="statusbar">
+    <span id="stats">0 mots · 0 car · 0 min lecture</span>
+    <span id="cursor-pos">Ln 1 · Col 1</span>
+    <span id="dirty-indicator"></span>
+  </footer>
+
+  <div id="pdf-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Options d'export PDF</h3>
+      <label>Format
+        <select id="pdf-page-size">
+          <option value="A4">A4</option>
+          <option value="Letter">Letter</option>
+          <option value="Legal">Legal</option>
+          <option value="A3">A3</option>
+          <option value="A5">A5</option>
+        </select>
+      </label>
+      <label>Orientation
+        <select id="pdf-landscape">
+          <option value="false">Portrait</option>
+          <option value="true">Paysage</option>
+        </select>
+      </label>
+      <label>Marges (pouces)
+        <input type="number" id="pdf-margin" value="0.5" step="0.1" min="0" max="2" />
+      </label>
+      <label class="row"><input type="checkbox" id="pdf-header-footer" checked /> Numéros de page</label>
+      <label>En-tête
+        <input type="text" id="pdf-header-text" placeholder="(optionnel)" />
+      </label>
+      <div class="modal-actions">
+        <button id="pdf-cancel">Annuler</button>
+        <button id="pdf-confirm" class="primary">Exporter</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../node_modules/marked/marked.min.js"></script>
+  <script src="../node_modules/marked-highlight/lib/index.umd.js"></script>
+  <script src="../node_modules/katex/dist/katex.min.js"></script>
+  <script src="../node_modules/marked-katex-extension/lib/index.umd.js"></script>
+  <script src="../node_modules/mermaid/dist/mermaid.min.js"></script>
+  <script type="module">
+    import hljs from "../node_modules/highlight.js/es/index.js";
+    window.hljs = hljs;
+    window.dispatchEvent(new Event('hljs-ready'));
+  </script>
+  <script src="editor-bundle.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
