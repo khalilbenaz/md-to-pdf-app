@@ -5,6 +5,35 @@ const chokidar = require('chokidar');
 
 let mainWindow;
 let watcher = null;
+const pendingFiles = [];
+
+function extractMdPaths(argv) {
+  return argv
+    .slice(1)
+    .filter((a) => !a.startsWith('-') && /\.(md|markdown|txt)$/i.test(a))
+    .map((p) => path.resolve(p));
+}
+
+async function sendFilesToRenderer(paths) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    pendingFiles.push(...paths);
+    return;
+  }
+  if (mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.once('did-finish-load', () => sendFilesToRenderer(paths));
+    return;
+  }
+  for (const p of paths) {
+    try {
+      const content = await fs.readFile(p, 'utf8');
+      mainWindow.webContents.send('file:open-path', { path: p, content });
+    } catch (err) {
+      console.error('Failed to open', p, err);
+    }
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -19,6 +48,13 @@ function createWindow() {
     },
   });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (pendingFiles.length) {
+      const queued = pendingFiles.splice(0);
+      sendFilesToRenderer(queued);
+    }
+  });
 
   const isMac = process.platform === 'darwin';
   const menu = Menu.buildFromTemplate([
@@ -53,9 +89,30 @@ function createWindow() {
   Menu.setApplicationMenu(menu);
 }
 
-app.whenReady().then(createWindow);
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  pendingFiles.push(...extractMdPaths(process.argv));
+
+  app.on('second-instance', (_e, argv) => {
+    const paths = extractMdPaths(argv);
+    if (paths.length) sendFilesToRenderer(paths);
+    else if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  app.on('open-file', (e, filePath) => {
+    e.preventDefault();
+    sendFilesToRenderer([filePath]);
+  });
+
+  app.whenReady().then(createWindow);
+  app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+}
 
 ipcMain.handle('file:open', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {

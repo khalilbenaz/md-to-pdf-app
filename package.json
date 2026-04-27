@@ -13,6 +13,7 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@electron/packager": "^20.0.0",
     "electron": "^32.0.0",
     "electron-builder": "^25.0.0",
     "esbuild": "^0.28.0"

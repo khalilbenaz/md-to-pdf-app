@@ -12,4 +12,5 @@ contextBridge.exposeInMainWorld('api', {
   exportHtml: (payload) => ipcRenderer.invoke('file:export-html', payload),
   onMenu: (channel, handler) => ipcRenderer.on(channel, handler),
   onFileChanged: (handler) => ipcRenderer.on('file:changed', (_e, data) => handler(data)),
+  onOpenPath: (handler) => ipcRenderer.on('file:open-path', (_e, data) => handler(data)),
 });

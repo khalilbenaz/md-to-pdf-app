@@ -386,6 +386,14 @@ document.addEventListener('drop', async (e) => {
 });
 function removeOverlay() { if (dropOverlay) { dropOverlay.remove(); dropOverlay = null; } }
 
+// ---------- Open file from OS (double-click on .md) ----------
+window.api.onOpenPath(({ path: filePath, content }) => {
+  const existing = tabs.find(t => t.path === filePath);
+  if (existing) { setActive(existing); return; }
+  newTab({ path: filePath, content });
+  markClean();
+});
+
 // ---------- File watcher ----------
 window.api.onFileChanged(({ path, content }) => {
   const t = tabs.find(x => x.path === path);
