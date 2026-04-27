@@ -6,6 +6,7 @@ const chokidar = require('chokidar');
 let mainWindow;
 let watcher = null;
 const pendingFiles = [];
+let rendererReady = false;
 
 function extractMdPaths(argv) {
   return argv
@@ -15,12 +16,8 @@ function extractMdPaths(argv) {
 }
 
 async function sendFilesToRenderer(paths) {
-  if (!mainWindow || mainWindow.isDestroyed()) {
+  if (!mainWindow || mainWindow.isDestroyed() || !rendererReady) {
     pendingFiles.push(...paths);
-    return;
-  }
-  if (mainWindow.webContents.isLoading()) {
-    mainWindow.webContents.once('did-finish-load', () => sendFilesToRenderer(paths));
     return;
   }
   for (const p of paths) {
@@ -33,6 +30,12 @@ async function sendFilesToRenderer(paths) {
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.focus();
+}
+
+async function flushPending() {
+  if (!pendingFiles.length) return;
+  const queued = pendingFiles.splice(0);
+  await sendFilesToRenderer(queued);
 }
 
 function createWindow() {
@@ -49,12 +52,7 @@ function createWindow() {
   });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
-  mainWindow.webContents.once('did-finish-load', () => {
-    if (pendingFiles.length) {
-      const queued = pendingFiles.splice(0);
-      sendFilesToRenderer(queued);
-    }
-  });
+  mainWindow.on('closed', () => { rendererReady = false; mainWindow = null; });
 
   const isMac = process.platform === 'darwin';
   const menu = Menu.buildFromTemplate([
@@ -113,6 +111,11 @@ if (!gotLock) {
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }
+
+ipcMain.on('app:renderer-ready', () => {
+  rendererReady = true;
+  flushPending();
+});
 
 ipcMain.handle('file:open', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {

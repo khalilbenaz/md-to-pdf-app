@@ -13,4 +13,5 @@ contextBridge.exposeInMainWorld('api', {
   onMenu: (channel, handler) => ipcRenderer.on(channel, handler),
   onFileChanged: (handler) => ipcRenderer.on('file:changed', (_e, data) => handler(data)),
   onOpenPath: (handler) => ipcRenderer.on('file:open-path', (_e, data) => handler(data)),
+  notifyReady: () => ipcRenderer.send('app:renderer-ready'),
 });

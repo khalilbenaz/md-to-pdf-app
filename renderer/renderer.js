@@ -517,4 +517,7 @@ sequenceDiagram
   Preview->>PDF: exporte
 \`\`\`
 ` });
+
+// Tell main the renderer is fully wired and ready to receive file:open-path
+if (window.api.notifyReady) window.api.notifyReady();
 markClean();
