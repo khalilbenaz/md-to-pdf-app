@@ -10,8 +10,8 @@ contextBridge.exposeInMainWorld('api', {
   watchFile: (p) => ipcRenderer.invoke('file:watch', p),
   exportPdf: (payload) => ipcRenderer.invoke('file:export-pdf', payload),
   exportHtml: (payload) => ipcRenderer.invoke('file:export-html', payload),
+  setDefaultMarkdown: () => ipcRenderer.invoke('app:set-default-md'),
   onMenu: (channel, handler) => ipcRenderer.on(channel, handler),
   onFileChanged: (handler) => ipcRenderer.on('file:changed', (_e, data) => handler(data)),
-  onOpenPath: (handler) => ipcRenderer.on('file:open-path', (_e, data) => handler(data)),
-  notifyReady: () => ipcRenderer.send('app:renderer-ready'),
+  onOpenExternal: (handler) => ipcRenderer.on('file:open-external', (_e, data) => handler(data)),
 });

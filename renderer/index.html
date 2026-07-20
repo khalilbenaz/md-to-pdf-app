@@ -9,13 +9,15 @@
 </head>
 <body>
   <header>
+    <button id="btn-sidebar" title="Afficher/masquer le panneau latéral">☰</button>
     <button id="btn-open" title="Ouvrir (Cmd+O)">📄 Ouvrir</button>
     <button id="btn-open-folder" title="Ouvrir dossier (Cmd+Shift+O)">📁 Dossier</button>
     <button id="btn-save" title="Enregistrer (Cmd+S)">💾 Enregistrer</button>
     <button id="btn-export" title="Exporter PDF (Cmd+E)">📕 PDF</button>
     <button id="btn-export-html" title="Exporter HTML">🌐 HTML</button>
+    <button id="btn-default-reader" title="Définir MD to PDF comme lecteur Markdown par défaut">⭐ Défaut</button>
     <span class="sep"></span>
-    <label class="toggle"><input type="checkbox" id="toggle-editor" checked /> Code</label>
+    <label class="toggle"><input type="checkbox" id="toggle-editor" /> Code</label>
     <label class="toggle"><input type="checkbox" id="toggle-sync" checked /> Sync</label>
     <label class="toggle"><input type="checkbox" id="toggle-autosave" /> Autosave</label>
     <button id="btn-theme" title="Thème (Cmd+T)">🌓</button>
@@ -27,8 +29,8 @@
   <main>
     <aside id="sidebar">
       <div class="sidebar-tabs">
+        <button data-tab="toc">Menu</button>
         <button data-tab="files" class="active">Fichiers</button>
-        <button data-tab="toc">TOC</button>
         <button data-tab="search">Recherche</button>
       </div>
       <div id="tab-files" class="tab-panel active">

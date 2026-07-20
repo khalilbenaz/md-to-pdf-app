@@ -1,41 +1,51 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const fs = require('fs/promises');
+const { existsSync } = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const chokidar = require('chokidar');
 
 let mainWindow;
 let watcher = null;
-const pendingFiles = [];
+
+// Extensions markdown reconnues par l'application (doivent rester alignées avec
+// "fileAssociations" dans package.json).
+const MD_EXTENSIONS = ['md', 'markdown', 'mdown', 'mkd'];
+const MD_EXT_RE = new RegExp('\\.(' + MD_EXTENSIONS.join('|') + '|txt)$', 'i');
+
+// File d'attente des fichiers à ouvrir tant que la fenêtre n'est pas prête
+// (macOS envoie l'évènement open-file avant que le renderer ne soit chargé).
+let pendingFiles = [];
 let rendererReady = false;
 
-function extractMdPaths(argv) {
+async function openPathInRenderer(filePath) {
+  if (!filePath) return;
+  if (!rendererReady || !mainWindow) { pendingFiles.push(filePath); return; }
+  try {
+    const content = await fs.readFile(filePath, 'utf8');
+    mainWindow.webContents.send('file:open-external', { path: filePath, content });
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  } catch (e) {
+    dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      message: 'Impossible d\'ouvrir le fichier',
+      detail: filePath + '\n\n' + e.message,
+    });
+  }
+}
+
+function filesFromArgv(argv) {
+  // Sur Windows/Linux, le chemin du fichier est passé en argument de ligne de commande.
   return argv
     .slice(1)
-    .filter((a) => !a.startsWith('-') && /\.(md|markdown|txt)$/i.test(a))
-    .map((p) => path.resolve(p));
+    .filter((a) => !a.startsWith('-') && MD_EXT_RE.test(a) && existsSync(a));
 }
 
-async function sendFilesToRenderer(paths) {
-  if (!mainWindow || mainWindow.isDestroyed() || !rendererReady) {
-    pendingFiles.push(...paths);
-    return;
-  }
-  for (const p of paths) {
-    try {
-      const content = await fs.readFile(p, 'utf8');
-      mainWindow.webContents.send('file:open-path', { path: p, content });
-    } catch (err) {
-      console.error('Failed to open', p, err);
-    }
-  }
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.focus();
-}
-
-async function flushPending() {
-  if (!pendingFiles.length) return;
-  const queued = pendingFiles.splice(0);
-  await sendFilesToRenderer(queued);
+function flushPendingFiles() {
+  const queued = pendingFiles;
+  pendingFiles = [];
+  for (const f of queued) openPathInRenderer(f);
 }
 
 function createWindow() {
@@ -50,9 +60,15 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+  mainWindow.maximize();
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
-  mainWindow.on('closed', () => { rendererReady = false; mainWindow = null; });
+  mainWindow.webContents.once('did-finish-load', () => {
+    rendererReady = true;
+    // Fichiers passés au premier lancement (double-clic sous Windows/Linux).
+    for (const f of filesFromArgv(process.argv)) pendingFiles.push(f);
+    flushPendingFiles();
+  });
 
   const isMac = process.platform === 'darwin';
   const menu = Menu.buildFromTemplate([
@@ -69,6 +85,8 @@ function createWindow() {
         { type: 'separator' },
         { label: 'Export PDF…', accelerator: 'CmdOrCtrl+E', click: () => mainWindow.webContents.send('menu:export') },
         { label: 'Export HTML…', accelerator: 'CmdOrCtrl+Shift+E', click: () => mainWindow.webContents.send('menu:export-html') },
+        { type: 'separator' },
+        { label: 'Set as Default Markdown Reader', click: () => mainWindow.webContents.send('menu:set-default') },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },
       ],
@@ -87,24 +105,23 @@ function createWindow() {
   Menu.setApplicationMenu(menu);
 }
 
+// macOS : fichier ouvert via Finder / "Ouvrir avec". Peut arriver avant `ready`.
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  openPathInRenderer(filePath);
+});
+
+// Une seule instance : les fichiers d'un second lancement sont routés vers la fenêtre existante.
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  pendingFiles.push(...extractMdPaths(process.argv));
-
   app.on('second-instance', (_e, argv) => {
-    const paths = extractMdPaths(argv);
-    if (paths.length) sendFilesToRenderer(paths);
-    else if (mainWindow) {
+    if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
-  });
-
-  app.on('open-file', (e, filePath) => {
-    e.preventDefault();
-    sendFilesToRenderer([filePath]);
+    for (const f of filesFromArgv(argv)) openPathInRenderer(f);
   });
 
   app.whenReady().then(createWindow);
@@ -112,10 +129,112 @@ if (!gotLock) {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }
 
-ipcMain.on('app:renderer-ready', () => {
-  rendererReady = true;
-  flushPending();
-});
+// ─── Définir l'application comme lecteur Markdown par défaut ────────────────────
+
+function macAppBundlePath() {
+  const exe = app.getPath('exe');
+  const marker = '.app/';
+  const idx = exe.indexOf(marker);
+  return idx !== -1 ? exe.slice(0, idx + marker.length - 1) : null;
+}
+
+// macOS : utilise NSWorkspace.setDefaultApplication (Launch Services) via le
+// compilateur Swift système. Aucune dépendance tierce.
+function setDefaultMac() {
+  return new Promise((resolve) => {
+    if (!app.isPackaged) {
+      resolve({
+        ok: false,
+        message: 'Disponible uniquement dans l\'application installée.\n\n'
+          + 'Lancez « MD to PDF » depuis le dossier Applications, puis réessayez.',
+      });
+      return;
+    }
+    const bundle = macAppBundlePath();
+    if (!bundle) {
+      resolve({ ok: false, message: 'Chemin de l\'application introuvable.' });
+      return;
+    }
+
+    const swiftSrc = `
+import AppKit
+import UniformTypeIdentifiers
+
+let env = ProcessInfo.processInfo.environment
+guard let appPath = env["MDP_APP_PATH"] else {
+  FileHandle.standardError.write("chemin app manquant".data(using: .utf8)!); exit(2)
+}
+let exts = (env["MDP_EXTS"] ?? "").split(separator: ",").map(String.init)
+let appURL = URL(fileURLWithPath: appPath)
+let ws = NSWorkspace.shared
+var errors: [String] = []
+for ext in exts {
+  guard let type = UTType(filenameExtension: ext) else {
+    errors.append("\\(ext): type inconnu"); continue
+  }
+  let sem = DispatchSemaphore(value: 0)
+  ws.setDefaultApplication(at: appURL, toOpen: type) { error in
+    if let error = error { errors.append("\\(ext): \\(error.localizedDescription)") }
+    sem.signal()
+  }
+  sem.wait()
+}
+if errors.isEmpty { print("OK") }
+else { FileHandle.standardError.write(errors.joined(separator: "; ").data(using: .utf8)!); exit(1) }
+`;
+
+    const child = spawn('swift', ['-'], {
+      env: {
+        ...process.env,
+        MDP_APP_PATH: bundle,
+        MDP_EXTS: MD_EXTENSIONS.join(','),
+      },
+    });
+    let stderr = '';
+    child.on('error', (err) => {
+      resolve({
+        ok: false,
+        message: 'Le compilateur Swift est introuvable.\n\n'
+          + 'Vous pouvez définir MD to PDF comme lecteur par défaut manuellement :\n'
+          + 'clic droit sur un fichier .md → Lire les informations → Ouvrir avec → '
+          + 'MD to PDF → Tout modifier.\n\n(' + err.message + ')',
+      });
+    });
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve({
+          ok: true,
+          message: 'MD to PDF est maintenant le lecteur par défaut pour les fichiers '
+            + MD_EXTENSIONS.map((e) => '.' + e).join(', ') + '.',
+        });
+      } else {
+        resolve({
+          ok: false,
+          message: 'Impossible de définir l\'application par défaut.\n\n' + (stderr.trim() || 'Erreur inconnue.'),
+        });
+      }
+    });
+    child.stdin.write(swiftSrc);
+    child.stdin.end();
+  });
+}
+
+async function setAsDefaultMarkdownHandler() {
+  if (process.platform === 'darwin') return setDefaultMac();
+  if (process.platform === 'win32') {
+    // Windows 10+ interdit de forcer l'association par défaut sans l'utilisateur.
+    await shell.openExternal('ms-settings:defaultapps');
+    return {
+      ok: false,
+      message: 'Windows exige de choisir l\'application par défaut manuellement.\n\n'
+        + 'Dans Paramètres → Applications par défaut, choisissez « MD to PDF » pour les fichiers .md.',
+    };
+  }
+  return { ok: false, message: 'Fonction non prise en charge sur cette plateforme.' };
+}
+
+ipcMain.handle('app:set-default-md', () => setAsDefaultMarkdownHandler());
 
 ipcMain.handle('file:open', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {

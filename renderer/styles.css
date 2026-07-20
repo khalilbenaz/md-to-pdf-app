@@ -49,8 +49,9 @@ main { flex: 1; display: grid; grid-template-columns: 240px 1fr 1fr; overflow: h
 main > * { min-width: 0; }
 main.no-editor { grid-template-columns: 240px 1fr; }
 main.no-editor #editor { display: none; }
-main.no-sidebar { grid-template-columns: 0 1fr 1fr; }
+main.no-sidebar { grid-template-columns: 1fr 1fr; }
 main.no-sidebar #sidebar { display: none; }
+main.no-sidebar.no-editor { grid-template-columns: 1fr; }
 
 #sidebar { background: var(--bg-sidebar); overflow: hidden; display: flex; flex-direction: column; border-right: 1px solid var(--border); font-size: 13px; }
 .sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); }

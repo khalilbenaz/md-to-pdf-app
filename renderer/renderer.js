@@ -73,6 +73,23 @@ function newTab({ path = null, content = '' } = {}) {
   return t;
 }
 
+// Ouvre un fichier : réutilise un onglet "Sans titre" vierge (ex. l'accueil) au lieu d'en empiler un nouveau
+function openInTab({ path, content }) {
+  const existing = tabs.find(t => t.path === path);
+  if (existing) { setActiveTab(existing); return existing; }
+  const pristine = tabs.find(t => !t.path && !t.dirty);
+  if (pristine) {
+    pristine.path = path;
+    pristine.content = content;
+    setActiveTab(pristine);
+    markClean();
+    return pristine;
+  }
+  const t = newTab({ path, content });
+  markClean();
+  return t;
+}
+
 function setActiveTab(t) {
   activeTab = t;
   suppressChange = true;
@@ -184,11 +201,7 @@ function buildToc() {
 async function openFile() {
   const res = await window.api.openFile();
   if (!res) return;
-  for (const f of res) {
-    const existing = tabs.find(t => t.path === f.path);
-    if (existing) setActiveTab(existing);
-    else { newTab({ path: f.path, content: f.content }); markClean(); }
-  }
+  for (const f of res) openInTab({ path: f.path, content: f.content });
 }
 
 async function saveFile() {
@@ -251,13 +264,9 @@ function renderNode(items, root) {
       f.dataset.path = item.path;
       f.title = item.path;
       f.addEventListener('click', async () => {
-        const existing = tabs.find(t => t.path === item.path);
-        if (existing) setActiveTab(existing);
-        else {
-          const data = await window.api.readFile(item.path);
-          newTab({ path: data.path, content: data.content });
-          markClean();
-        }
+        if (tabs.find(t => t.path === item.path)) { setActiveTab(tabs.find(t => t.path === item.path)); return; }
+        const data = await window.api.readFile(item.path);
+        openInTab({ path: data.path, content: data.content });
       });
       frag.appendChild(f);
     }
@@ -287,13 +296,9 @@ async function doSearch() {
     const snippet = escapeHtml(r.snippet).replace(new RegExp(escapeHtml(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), m => `<mark>${m}</mark>`);
     div.innerHTML = `<div class="path">${escapeHtml(r.rel)}</div><div class="snippet">${snippet}</div>`;
     div.addEventListener('click', async () => {
-      const existing = tabs.find(t => t.path === r.path);
-      if (existing) setActiveTab(existing);
-      else {
-        const data = await window.api.readFile(r.path);
-        newTab({ path: data.path, content: data.content });
-        markClean();
-      }
+      if (tabs.find(t => t.path === r.path)) { setActiveTab(tabs.find(t => t.path === r.path)); return; }
+      const data = await window.api.readFile(r.path);
+      openInTab({ path: data.path, content: data.content });
     });
     out.appendChild(div);
   }
@@ -331,7 +336,20 @@ document.getElementById('btn-theme').addEventListener('click', () => {
 const mainEl = document.querySelector('main');
 const toggleEditor = document.getElementById('toggle-editor');
 const toggleSync = document.getElementById('toggle-sync');
-toggleEditor.addEventListener('change', () => mainEl.classList.toggle('no-editor', !toggleEditor.checked));
+// Volet Code : décoché par défaut au démarrage, état mémorisé entre les sessions
+toggleEditor.checked = localStorage.getItem('codePaneVisible') === 'true';
+mainEl.classList.toggle('no-editor', !toggleEditor.checked);
+toggleEditor.addEventListener('change', () => {
+  mainEl.classList.toggle('no-editor', !toggleEditor.checked);
+  localStorage.setItem('codePaneVisible', toggleEditor.checked);
+});
+
+// Panneau latéral : réductible via le bouton ☰, état mémorisé entre les sessions
+mainEl.classList.toggle('no-sidebar', localStorage.getItem('sidebarVisible') === 'false');
+document.getElementById('btn-sidebar').addEventListener('click', () => {
+  const hidden = mainEl.classList.toggle('no-sidebar');
+  localStorage.setItem('sidebarVisible', !hidden);
+});
 
 let syncing = false;
 function syncScroll(from, to) {
@@ -380,19 +398,21 @@ document.addEventListener('drop', async (e) => {
   for (const file of e.dataTransfer.files) {
     if (!/\.(md|markdown|txt)$/i.test(file.name)) continue;
     const content = await file.text();
-    newTab({ path: file.path, content });
-    markClean();
+    openInTab({ path: file.path, content });
   }
 });
 function removeOverlay() { if (dropOverlay) { dropOverlay.remove(); dropOverlay = null; } }
 
-// ---------- Open file from OS (double-click on .md) ----------
-window.api.onOpenPath(({ path: filePath, content }) => {
-  const existing = tabs.find(t => t.path === filePath);
-  if (existing) { setActive(existing); return; }
-  newTab({ path: filePath, content });
-  markClean();
+// ---------- Fichiers ouverts depuis le système (double-clic, "Ouvrir avec") ----------
+window.api.onOpenExternal(({ path, content }) => {
+  openInTab({ path, content });
 });
+
+// ---------- Lecteur Markdown par défaut ----------
+async function setDefaultReader() {
+  const res = await window.api.setDefaultMarkdown();
+  alert(res.message);
+}
 
 // ---------- File watcher ----------
 window.api.onFileChanged(({ path, content }) => {
@@ -467,6 +487,7 @@ document.getElementById('btn-open-folder').addEventListener('click', openFolder)
 document.getElementById('btn-save').addEventListener('click', saveFile);
 document.getElementById('btn-export').addEventListener('click', showPdfModal);
 document.getElementById('btn-export-html').addEventListener('click', doExportHtml);
+document.getElementById('btn-default-reader').addEventListener('click', setDefaultReader);
 
 window.api.onMenu('menu:new', () => { newTab(); markClean(); });
 window.api.onMenu('menu:open', openFile);
@@ -477,6 +498,7 @@ window.api.onMenu('menu:export', showPdfModal);
 window.api.onMenu('menu:export-html', doExportHtml);
 window.api.onMenu('menu:toggle-editor', () => { toggleEditor.checked = !toggleEditor.checked; toggleEditor.dispatchEvent(new Event('change')); });
 window.api.onMenu('menu:toggle-theme', () => document.getElementById('btn-theme').click());
+window.api.onMenu('menu:set-default', setDefaultReader);
 
 // ---------- Init ----------
 initEditor();
@@ -517,7 +539,4 @@ sequenceDiagram
   Preview->>PDF: exporte
 \`\`\`
 ` });
-
-// Tell main the renderer is fully wired and ready to receive file:open-path
-if (window.api.notifyReady) window.api.notifyReady();
 markClean();
