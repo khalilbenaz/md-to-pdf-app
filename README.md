@@ -1,25 +1,118 @@
-# MD to PDF
+# 📕 MD to PDF
 
-Éditeur Markdown multi-plateforme (macOS & Windows) avec aperçu en temps réel, export PDF/HTML, coloration syntaxique, KaTeX, Mermaid et thème clair/sombre.
+> Éditeur Markdown de bureau, multi-plateforme (macOS & Windows), avec aperçu en temps réel, export **PDF** & **HTML**, coloration syntaxique, **KaTeX**, **Mermaid** et thème clair/sombre.
 
-Construit avec [Electron](https://www.electronjs.org/) + [CodeMirror 6](https://codemirror.net/) + [marked](https://marked.js.org/).
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue)
+![Electron](https://img.shields.io/badge/Electron-32-47848F?logo=electron&logoColor=white)
+![CodeMirror](https://img.shields.io/badge/CodeMirror-6-d30707)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Telemetry](https://img.shields.io/badge/télémétrie-aucune-brightgreen)
+
+Construit avec [Electron](https://www.electronjs.org/) + [CodeMirror 6](https://codemirror.net/) + [marked](https://marked.js.org/) + [highlight.js](https://highlightjs.org/) + [KaTeX](https://katex.org/) + [Mermaid](https://mermaid.js.org/).
+
+---
+
+## 📑 Sommaire
+
+- [Fonctionnalités](#-fonctionnalités)
+- [Aperçu de l'interface](#-aperçu-de-linterface)
+- [Lecteur Markdown par défaut](#-lecteur-markdown-par-défaut)
+- [Préférences mémorisées](#-préférences-mémorisées)
+- [Raccourcis clavier](#️-raccourcis-clavier)
+- [Installation](#-installation)
+- [Depuis les sources — macOS](#-installation-sur-macos-depuis-les-sources)
+- [Depuis les sources — Windows](#-installation-sur-windows-depuis-les-sources)
+- [Releases automatiques (CI)](#-releases-automatiques-ci)
+- [Architecture](#️-architecture)
+- [Scripts npm](#️-scripts-npm)
+- [Dépannage](#-dépannage)
+- [Licence](#-licence) · [Contribuer](#-contribuer)
 
 ---
 
 ## ✨ Fonctionnalités
 
-- **Éditeur CodeMirror 6** avec coloration Markdown, numéros de ligne, recherche (`Cmd/Ctrl+F`)
-- **Aperçu live** synchronisé (vue partagée configurable)
-- **Onglets multiples** — ouvrez plusieurs documents simultanément
-- **Explorateur de dossiers** avec recherche plein-texte dans tous les `.md`
-- **Surveillance de fichier** (rechargement automatique si modifié hors de l'app)
-- **Export PDF** (A4/Letter, portrait/paysage, marges réglables, en-tête/pied optionnels, numéros de page)
-- **Export HTML** autonome
+### Édition
+- **Éditeur CodeMirror 6** : coloration Markdown, numéros de ligne, pliage de titres, multi-curseurs, recherche intégrée (`Cmd/Ctrl+F`)
+- **Raccourcis de formatage** : gras, italique, lien, souligné (`Cmd/Ctrl` + `B` / `I` / `K` / `U`)
+- **Front-matter YAML** reconnu et masqué de l'aperçu (`--- title: … ---`)
+- **Statistiques live** : nombre de mots, de caractères et temps de lecture estimé
+
+### Aperçu
+- **Aperçu live** rendu à chaque frappe, avec **défilement synchronisé** (activable/désactivable)
 - **Coloration syntaxique** du code (highlight.js — 190+ langages)
 - **Formules mathématiques** via KaTeX (`$inline$` et `$$block$$`)
-- **Diagrammes Mermaid** (flowcharts, séquence, Gantt, etc.)
-- **Thème clair / sombre** (`Cmd/Ctrl+T`)
-- **Zéro télémétrie**, tout est local
+- **Diagrammes Mermaid** (flowchart, séquence, Gantt, classe, état…)
+- **Thème clair / sombre** (`Cmd/Ctrl+T`), appliqué à l'éditeur, l'aperçu et les diagrammes
+
+### Gestion des fichiers
+- **Onglets multiples** — plusieurs documents ouverts en parallèle, avec déduplication (un fichier déjà ouvert n'est pas rouvert en double, et un onglet vierge est réutilisé)
+- **Explorateur de dossiers** avec arborescence repliable
+- **Recherche plein-texte** dans tous les `.md` d'un dossier
+- **Surveillance de fichier** : rechargement si le fichier est modifié hors de l'application
+- **Enregistrement automatique** optionnel (autosave 2 s après la dernière modification)
+- **Ouverture depuis le système** : double-clic sur un `.md` dans le Finder / l'Explorateur, ou « Ouvrir avec »
+- **Lecteur Markdown par défaut** en un clic (macOS) — voir plus bas
+
+### Export
+- **Export PDF** : formats A4/Letter/Legal/A3/A5, portrait/paysage, marges réglables, en-tête personnalisé et numéros de page optionnels
+- **Export HTML** autonome (styles inline, prêt à partager)
+
+### Confidentialité
+- **Zéro télémétrie**, 100 % local — aucun appel réseau, aucune donnée ne quitte votre machine
+
+---
+
+## 🖥️ Aperçu de l'interface
+
+**Barre d'outils (en-tête)**
+
+| Bouton | Rôle |
+|---|---|
+| ☰ | Afficher / masquer le panneau latéral |
+| 📄 Ouvrir | Ouvrir un fichier Markdown |
+| 📁 Dossier | Ouvrir un dossier (explorateur + recherche) |
+| 💾 Enregistrer | Enregistrer l'onglet courant |
+| 📕 PDF | Exporter en PDF (ouvre les options) |
+| 🌐 HTML | Exporter en HTML autonome |
+| ⭐ Défaut | Définir MD to PDF comme lecteur Markdown par défaut (macOS) |
+| ☑ Code | Afficher / masquer le volet éditeur |
+| ☑ Sync | Synchroniser le défilement éditeur ↔ aperçu |
+| ☑ Autosave | Enregistrement automatique |
+| 🌓 | Basculer le thème clair / sombre |
+
+**Panneau latéral** — trois onglets :
+
+- **Menu** — table des matières navigable, générée depuis les titres du document
+- **Fichiers** — arborescence du dossier ouvert
+- **Recherche** — recherche plein-texte dans le dossier
+
+---
+
+## ⭐ Lecteur Markdown par défaut
+
+MD to PDF peut s'enregistrer comme application par défaut pour les fichiers Markdown (`.md`, `.markdown`, `.mdown`, `.mkd`).
+
+- **macOS** : cliquez sur **⭐ Défaut** dans la barre d'outils (ou menu **File → Set as Default Markdown Reader**). L'app utilise `NSWorkspace.setDefaultApplication` via le compilateur Swift système — **aucune dépendance tierce**. Fonctionne uniquement sur **l'application installée** (pas en mode `npm start`).
+- Une fois défini, un double-clic sur un `.md` dans le Finder ouvre le fichier dans un nouvel onglet.
+
+> Les associations de fichiers sont déclarées dans `package.json` (`build.fileAssociations`) et, pour macOS, dans `build.mac.extendInfo.CFBundleDocumentTypes`.
+
+---
+
+## 💾 Préférences mémorisées
+
+Ces réglages sont conservés d'une session à l'autre (via `localStorage`) :
+
+| Préférence | Défaut | Détail |
+|---|---|---|
+| Thème | Clair | Clair / sombre |
+| Volet **Code** | **Masqué** | L'app démarre en mode aperçu ; réafficher le volet le mémorise |
+| **Panneau latéral** | Visible | Réductible via ☰, état retenu |
+
+La fenêtre s'ouvre **maximisée** au démarrage.
+
+---
 
 ## ⌨️ Raccourcis clavier
 
@@ -34,17 +127,15 @@ Construit avec [Electron](https://www.electronjs.org/) + [CodeMirror 6](https://
 | Export HTML | `Cmd/Ctrl+Shift+E` |
 | Basculer volet code | `Cmd/Ctrl+/` |
 | Basculer thème | `Cmd/Ctrl+T` |
-| Rechercher | `Cmd/Ctrl+F` |
+| Rechercher (dans l'éditeur) | `Cmd/Ctrl+F` |
+| **Gras** | `Cmd/Ctrl+B` |
+| *Italique* | `Cmd/Ctrl+I` |
+| Lien | `Cmd/Ctrl+K` |
+| Souligné | `Cmd/Ctrl+U` |
 
 ---
 
 ## 📦 Installation
-
-### Pré-requis
-
-- [Node.js](https://nodejs.org/) **≥ 18** (recommandé 20 LTS)
-- [Git](https://git-scm.com/)
-- npm (inclus avec Node.js)
 
 ### Télécharger les binaires pré-construits
 
@@ -52,6 +143,12 @@ Les installateurs sont disponibles dans l'onglet [Releases](../../releases) du d
 
 - **macOS** : `MD-to-PDF-<version>-arm64.dmg` (Apple Silicon) ou `MD-to-PDF-<version>-x64.dmg` (Intel)
 - **Windows** : `MD-to-PDF-Setup-<version>.exe` (installateur NSIS)
+
+### Pré-requis (build depuis les sources)
+
+- [Node.js](https://nodejs.org/) **≥ 18** (recommandé 20 LTS)
+- [Git](https://git-scm.com/)
+- npm (inclus avec Node.js)
 
 ---
 
@@ -77,9 +174,9 @@ npm run build:mac
 
 Le `.dmg` est produit dans `dist/` (versions `arm64` et `x64`).
 
-> ℹ️ **Apple Silicon vs Intel** : le build génère les deux architectures. Installez celui correspondant à votre Mac (`arm64` pour M1/M2/M3/M4, `x64` pour Intel).
+> ℹ️ **Apple Silicon vs Intel** : le build génère les deux architectures. Installez celle correspondant à votre Mac (`arm64` pour M1/M2/M3/M4, `x64` pour Intel).
 
-> ⚠️ **Gatekeeper** : l'application n'est pas signée avec un certificat Apple Developer. Au premier lancement, faites **clic droit → Ouvrir**, puis confirmez. Pour signer et notariser, définissez les variables `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` avant `npm run build:mac`.
+> ⚠️ **Gatekeeper** : l'application n'est pas signée avec un certificat Apple Developer. Au premier lancement, faites **clic droit → Ouvrir**, puis confirmez. Pour signer et notariser, définissez `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` avant `npm run build:mac`.
 
 ---
 
@@ -107,7 +204,21 @@ L'installateur NSIS est produit dans `dist\MD-to-PDF-Setup-<version>.exe`.
 
 > 💡 **Windows Defender SmartScreen** : l'installateur n'étant pas signé, SmartScreen peut afficher un avertissement. Cliquez sur **Informations complémentaires → Exécuter quand même**. Pour signer, définissez `CSC_LINK` et `CSC_KEY_PASSWORD` avant le build.
 
-> ℹ️ **Build cross-platform** : le build Windows est à exécuter sur Windows (recommandé). Le build macOS doit être exécuté sur un Mac.
+> ℹ️ **Build cross-platform** : le build Windows est à exécuter sur Windows, le build macOS sur un Mac.
+
+---
+
+## 🚀 Releases automatiques (CI)
+
+Un workflow **GitHub Actions** ([`.github/workflows/release.yml`](.github/workflows/release.yml)) construit et publie automatiquement les installateurs (DMG macOS + NSIS Windows) à chaque tag de version.
+
+```bash
+# Bump de version dans package.json, puis :
+git tag v1.1.3
+git push origin v1.1.3
+```
+
+Le push d'un tag `v*` déclenche le build multi-OS et attache les artefacts à la Release GitHub correspondante.
 
 ---
 
@@ -115,23 +226,31 @@ L'installateur NSIS est produit dans `dist\MD-to-PDF-Setup-<version>.exe`.
 
 ```
 md-to-pdf-app/
-├── main.js              # Process principal Electron (IPC, fenêtres, export PDF/HTML)
-├── preload.js           # Bridge contextIsolation entre main et renderer
+├── main.js                     # Process principal Electron (IPC, fenêtres, export PDF/HTML,
+│                               #   ouverture système, lecteur par défaut)
+├── preload.js                  # Bridge contextIsolation entre main et renderer
 ├── renderer/
-│   ├── index.html       # Shell UI
-│   ├── styles.css       # Thèmes clair/sombre, layout
-│   ├── editor-src.js    # Source CodeMirror 6 (bundlée par esbuild)
-│   ├── editor-bundle.js # Bundle généré (ignoré par git)
-│   └── renderer.js      # Logique UI : onglets, preview, marked, mermaid, katex
-├── package.json         # Dépendances, scripts, config electron-builder
-└── dist/                # Sorties de build (ignorées par git)
+│   ├── index.html              # Shell de l'UI
+│   ├── styles.css              # Thèmes clair/sombre, layout en grille
+│   ├── editor-src.js           # Source CodeMirror 6 (bundlée par esbuild)
+│   ├── editor-bundle.js        # Bundle généré (ignoré par git)
+│   └── renderer.js             # Logique UI : onglets, aperçu, marked, mermaid, katex,
+│                               #   TOC, recherche, préférences
+├── .github/workflows/release.yml   # CI : build & publication des installateurs
+├── installer.iss               # Script Inno Setup (installateur Windows alternatif)
+├── package.json                # Dépendances, scripts, config electron-builder
+└── dist/                       # Sorties de build (ignorées par git)
 ```
 
-**Flux d'export PDF :**
+**Flux d'export PDF**
 1. Le renderer produit le HTML final (marked + highlight.js + KaTeX + Mermaid rendu en SVG).
 2. Le main process charge ce HTML dans une `BrowserWindow` cachée.
-3. `webContents.printToPDF()` génère le PDF via le moteur d'impression intégré.
-4. Le fichier est écrit et révélé dans le Finder / l'Explorateur.
+3. `webContents.printToPDF()` génère le PDF via le moteur d'impression intégré de Chromium.
+4. Le fichier est écrit puis révélé dans le Finder / l'Explorateur.
+
+**Ouverture depuis le système**
+- macOS envoie l'évènement `open-file` (double-clic / « Ouvrir avec »), parfois avant que le renderer soit prêt : les chemins sont mis en **file d'attente** puis rejoués une fois la fenêtre chargée.
+- Une **instance unique** est garantie ; les fichiers d'un second lancement sont routés vers la fenêtre existante.
 
 ---
 
@@ -145,21 +264,26 @@ md-to-pdf-app/
 | `npm run build:mac` | Build `.dmg` (arm64 + x64) |
 | `npm run build:win` | Build installateur NSIS |
 
+> 💡 Pour un build local rapide sans générer de `.dmg`/`.exe` : `npm run bundle && npx electron-builder --mac --dir` (produit l'app dans `dist/mac-arm64/`).
+
 ---
 
 ## 🐛 Dépannage
 
 **`npm install` échoue sur `node-gyp` / binaires natifs**
-→ Sur macOS : `xcode-select --install`. Sur Windows : installer les [Build Tools for Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+→ macOS : `xcode-select --install`. Windows : installer les [Build Tools for Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
 
 **L'app s'ouvre en blanc au démarrage**
-→ Vérifiez que `npm run bundle` a bien généré `renderer/editor-bundle.js`. Relancez `npm start`.
+→ Vérifiez que `npm run bundle` a bien généré `renderer/editor-bundle.js`, puis relancez `npm start`.
 
 **Export PDF vide ou mal rendu**
-→ Ouvrez DevTools (`Cmd/Ctrl+Shift+I`), vérifiez les erreurs dans la console du preview. Les ressources KaTeX/Mermaid doivent être chargées.
+→ Ouvrez les DevTools (`Cmd/Ctrl+Shift+I`) et vérifiez la console de l'aperçu. Les ressources KaTeX/Mermaid doivent être chargées.
 
-**Erreur `electron-builder` au build depuis une autre plateforme**
-→ Construisez chaque cible sur sa plateforme native.
+**Le bouton ⭐ Défaut ne fait rien / renvoie une erreur**
+→ La fonction n'est disponible que sur **l'application installée** (pas en `npm start`). Sur macOS, autorisez l'app dans **Réglages Système → Confidentialité et sécurité** si Gatekeeper l'a bloquée.
+
+**Erreur `electron-builder` lors d'un build cross-platform**
+→ Construisez chaque cible sur sa plateforme native (DMG sur macOS, NSIS sur Windows).
 
 ---
 
