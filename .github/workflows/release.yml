@@ -85,34 +85,48 @@ jobs:
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
-      # One ~130 MB asset per step: uploading the two DMGs together made GitHub
-      # answer "Error saving asset".
-      - name: Upload macOS DMG (arm64)
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          files: artifacts/**/*-arm64.dmg
-          fail_on_unmatched_files: false
-          generate_release_notes: false
+      # Neither softprops/action-gh-release ("Error creating asset temp dir") nor
+      # `gh release upload` (hangs indefinitely) could attach a 130 MB DMG, so the
+      # uploads API is called directly, one file at a time, with retries.
+      - name: Upload installers to the GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          id=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" "$api/releases/tags/$TAG" | jq -r '.id // empty')
+          if [ -z "$id" ]; then
+            id=$(curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" \
+              "$api/releases" -d "$(jq -n --arg t "$TAG" '{tag_name:$t, name:$t}')" | jq -r .id)
+          fi
+          echo "Release id: $id"
 
-      - name: Upload macOS DMG (x64)
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          files: artifacts/**/*-x64.dmg
-          fail_on_unmatched_files: false
-          generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          existing=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" "$api/releases/$id/assets")
 
-      - name: Upload Windows installer
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          files: artifacts/**/*.exe
-          fail_on_unmatched_files: false
-          generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          find artifacts -type f \( -name '*.dmg' -o -name '*.exe' \) -print0 |
+          while IFS= read -r -d '' f; do
+            name=$(basename "$f" | tr ' ' '.')
+            old=$(echo "$existing" | jq -r --arg n "$name" '.[] | select(.name == $n) | .id')
+            if [ -n "$old" ]; then
+              curl -sS -X DELETE -H "Authorization: Bearer $GH_TOKEN" "$api/releases/assets/$old"
+            fi
+
+            for attempt in 1 2 3; do
+              echo "Uploading $name (attempt $attempt, $(du -h "$f" | cut -f1))"
+              code=$(curl -sS -o /tmp/upload.out -w '%{http_code}' --max-time 900 \
+                -X POST -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @"$f" \
+                "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$id/assets?name=$name") || code=000
+              if [ "$code" = "201" ]; then
+                echo "  ok"
+                break
+              fi
+              echo "  HTTP $code: $(head -c 300 /tmp/upload.out)"
+              if [ "$attempt" = 3 ]; then
+                exit 1
+              fi
+              sleep 20
+            done
+          done
