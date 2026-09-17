@@ -137,6 +137,7 @@ function render() {
   const src = editor ? editor.getValue() : '';
   const { body } = stripFrontMatter(src);
   preview.innerHTML = md.parse(body);
+  const { headings } = md.enhance(preview);
   resolveLocalImages();
 
   if (window.mermaid) {
@@ -152,7 +153,7 @@ function render() {
     try { mermaidPending = Promise.resolve(mermaid.run({ querySelector: '.mermaid' })); } catch {}
   }
 
-  buildToc();
+  buildToc(headings);
   updateStats();
 }
 
@@ -181,22 +182,24 @@ function updateStats() {
 }
 
 // ---------- TOC ----------
-function buildToc() {
+// Le panneau latéral consomme la liste produite par `enhance()` : les
+// identifiants sont attribués une seule fois, sinon les deux sommaires
+// divergeraient.
+function buildToc(headings) {
   const toc = document.getElementById('toc');
   toc.innerHTML = '';
-  preview.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((h, i) => {
-    if (!h.id) h.id = 'h-' + i;
+  for (const h of headings) {
     const a = document.createElement('a');
     a.href = '#' + h.id;
-    a.textContent = h.textContent;
-    a.className = h.tagName.toLowerCase();
+    a.textContent = h.text;
+    a.className = h.el.tagName.toLowerCase();
     a.addEventListener('click', (e) => {
       e.preventDefault();
-      const top = h.getBoundingClientRect().top - preview.getBoundingClientRect().top + preview.scrollTop - 8;
+      const top = h.el.getBoundingClientRect().top - preview.getBoundingClientRect().top + preview.scrollTop - 8;
       preview.scrollTo({ top, behavior: 'smooth' });
     });
     toc.appendChild(a);
-  });
+  }
 }
 
 // ---------- File ops ----------

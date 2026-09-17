@@ -145,6 +145,23 @@ app.whenReady().then(async () => {
   check('KaTeX fonts are embedded in the PDF', /KaTeX_/.test(pdf.toString('latin1')));
   await fs.unlink(staged).catch(() => {});
 
+  // Les identifiants positionnels (`h-0`, `h-1`) se décalent dès qu'un titre est
+  // ajouté au-dessus : une ancre d'un HTML exporté cesse de désigner la même
+  // section. Les slugs dérivés du texte sont stables.
+  const slugs = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse('# Mise en page\\n\\n## Notes\\n\\n## Notes\\n');
+    const { headings } = window.md.enhance(preview);
+    return JSON.stringify({
+      ids: [...preview.querySelectorAll('h1,h2')].map(h => h.id),
+      returned: headings.map(h => h.id + ':' + h.level),
+    });
+  })()`);
+  const s = JSON.parse(slugs);
+  check('les titres reçoivent des slugs stables', s.ids[0] === 'mise-en-page', slugs);
+  check('les titres homonymes sont dédoublonnés', s.ids[1] === 'notes' && s.ids[2] === 'notes-2', slugs);
+  check('enhance() retourne les titres avec leur niveau', s.returned[0] === 'mise-en-page:1', slugs);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   app.exit(failed.length ? 1 : 0);
