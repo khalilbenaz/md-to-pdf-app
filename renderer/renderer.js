@@ -1,19 +1,4 @@
-// ---------- Marked setup ----------
-function setupMarked() {
-  if (window.markedHighlight && window.hljs) {
-    marked.use(window.markedHighlight.markedHighlight({
-      langPrefix: 'hljs language-',
-      highlight(code, lang) {
-        const language = hljs.getLanguage(lang) ? lang : 'plaintext';
-        return hljs.highlight(code, { language, ignoreIllegals: true }).value;
-      },
-    }));
-  }
-  if (window.markedKatex) marked.use(window.markedKatex({ throwOnError: false }));
-  marked.use({ gfm: true, breaks: false });
-}
-setupMarked();
-
+// ---------- Mermaid ----------
 if (window.mermaid) mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
 
 // ---------- Front-matter ----------
@@ -151,9 +136,7 @@ let mermaidPending = Promise.resolve();
 function render() {
   const src = editor ? editor.getValue() : '';
   const { body } = stripFrontMatter(src);
-  // `<!-- pagebreak -->` is invisible on screen but has to survive as an element
-  // for the export stylesheet to hang a `break-after` on it.
-  preview.innerHTML = marked.parse(body.replace(/<!--\s*pagebreak\s*-->/gi, '<div class="page-break"></div>'));
+  preview.innerHTML = md.parse(body);
   resolveLocalImages();
 
   if (window.mermaid) {

@@ -58,17 +58,15 @@ app.whenReady().then(async () => {
 
   // --- libraries reached the renderer ---
   const libs = await win.webContents.executeJavaScript(
-    'JSON.stringify({hljs: typeof window.hljs, katex: typeof window.katex, katexExt: typeof window.markedKatex, mermaid: typeof window.mermaid, marked: typeof window.marked})'
+    'JSON.stringify({parse: typeof window.md?.parse, mermaid: typeof window.mermaid})'
   );
   const l = JSON.parse(libs);
-  check('highlight.js is available', l.hljs === 'object', libs);
-  check('KaTeX is available', l.katex === 'object', libs);
-  check('marked-katex-extension is available', l.katexExt === 'function', libs);
+  check('the markdown engine is available', l.parse === 'function', libs);
   check('mermaid is available', l.mermaid === 'object', libs);
 
   // --- the extensions are actually registered on marked ---
   const parsed = await win.webContents.executeJavaScript(
-    `window.marked.parse(${JSON.stringify(SAMPLE)})`
+    `window.md.parse(${JSON.stringify(SAMPLE)})`
   );
   check('block math is typeset', parsed.includes('katex-display'));
   check('inline math is typeset', parsed.includes('class="katex"'));
@@ -77,7 +75,7 @@ app.whenReady().then(async () => {
   // --- render the sample through the real preview ---
   const rendered = await win.webContents.executeJavaScript(`(async () => {
     const preview = document.getElementById('preview');
-    preview.innerHTML = window.marked.parse(${JSON.stringify(SAMPLE)}.replace(/<!--\\s*pagebreak\\s*-->/gi, '<div class="page-break"></div>'));
+    preview.innerHTML = window.md.parse(${JSON.stringify(SAMPLE)}.replace(/<!--\\s*pagebreak\\s*-->/gi, '<div class="page-break"></div>'));
     const blocks = preview.querySelectorAll('pre code.language-mermaid, pre code.hljs.language-mermaid');
     blocks.forEach((el, i) => {
       const div = document.createElement('div');
