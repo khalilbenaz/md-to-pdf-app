@@ -75,7 +75,10 @@ app.whenReady().then(async () => {
   // --- render the sample through the real preview ---
   const rendered = await win.webContents.executeJavaScript(`(async () => {
     const preview = document.getElementById('preview');
-    preview.innerHTML = window.md.parse(${JSON.stringify(SAMPLE)}.replace(/<!--\\s*pagebreak\\s*-->/gi, '<div class="page-break"></div>'));
+    // Pas de pré-transformation ici : le test pré-remplaçait lui-même le
+    // marqueur, si bien que la vérification portait sur son propre \`.replace\`
+    // et passait encore si \`preprocess()\` disparaissait du moteur.
+    preview.innerHTML = window.md.parse(${JSON.stringify(SAMPLE)});
     const blocks = preview.querySelectorAll('pre code.language-mermaid, pre code.hljs.language-mermaid');
     blocks.forEach((el, i) => {
       const div = document.createElement('div');
