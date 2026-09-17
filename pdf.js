@@ -34,6 +34,24 @@ function decodePdfName(name) {
   return Buffer.from(bytes).toString('utf8');
 }
 
+// L'ordre de lecture du document est celui du tableau /Kids de l'objet
+// /Type /Pages : c'est la définition même du format, rien à déduire. Repli sur
+// l'ordre d'apparition textuelle des objets de page si ce tableau est
+// introuvable — c'était le seul signal disponible avant cette fonction, il
+// reste correct tant que PDFium écrit ses objets dans l'ordre de lecture.
+function pageOrderOf(raw) {
+  for (const m of raw.matchAll(/(\d+) 0 obj\s*<<([\s\S]*?)>>\s*endobj/g)) {
+    if (/\/Type\s*\/Pages\b/.test(m[2])) {
+      const kids = m[2].match(/\/Kids\s*\[([^\]]*)\]/);
+      if (kids) {
+        const order = [...kids[1].matchAll(/(\d+) 0 R/g)].map(k => Number(k[1]));
+        if (order.length) return order;
+      }
+    }
+  }
+  return [...raw.matchAll(/(\d+) 0 obj\s*<<[^>]*?\/Type\s*\/Page[^s]/g)].map(m => Number(m[1]));
+}
+
 // Chromium nomme ses destinations d'après les identifiants d'ancre du document
 // et n'emploie pas de flux d'objets : la table est lisible telle quelle. Rendre
 // un objet vide plutôt que lever, pour qu'un changement de Chromium coûte des
@@ -41,7 +59,7 @@ function decodePdfName(name) {
 function destinationPages(pdfBuffer) {
   const raw = Buffer.isBuffer(pdfBuffer) ? pdfBuffer.toString('latin1') : String(pdfBuffer);
 
-  const pageOrder = [...raw.matchAll(/(\d+) 0 obj\s*<<[^>]*?\/Type\s*\/Page[^s]/g)].map(m => Number(m[1]));
+  const pageOrder = pageOrderOf(raw);
   if (!pageOrder.length) return {};
 
   const ref = raw.match(/\/Dests\s+(\d+) 0 R/);

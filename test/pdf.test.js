@@ -45,6 +45,24 @@ test('la table des destinations donne la page de chaque ancre', () => {
   });
 });
 
+test('la table des destinations suit l\'ordre du tableau /Kids, pas l\'ordre d\'apparition textuelle', () => {
+  // L'objet de la page 3 (14 0 obj) est écrit en premier dans le fichier :
+  // rien ne garantit que PDFium liste ses objets de page dans l'ordre de
+  // lecture. Seul /Kids donne l'ordre réel des pages.
+  const pdf = [
+    '%PDF-1.7',
+    '14 0 obj<</Type /Page /Parent 1 0 R>>endobj',
+    '2 0 obj<</Type /Page /Parent 1 0 R>>endobj',
+    '11 0 obj<</Type /Page /Parent 1 0 R>>endobj',
+    '1 0 obj<</Type /Pages /Kids [2 0 R 11 0 R 14 0 R]>>endobj',
+    '17 0 obj<</un [2 0 R /XYZ 0 0 0] /deux [11 0 R /XYZ 0 0 0] /p#c3#a9rim#c3#a8tre [14 0 R /XYZ 0 0 0]>>endobj',
+    '20 0 obj<</Type /Catalog /Dests 17 0 R>>endobj',
+  ].join('\n');
+  assert.deepEqual(destinationPages(Buffer.from(pdf, 'latin1')), {
+    un: 1, deux: 2, 'périmètre': 3,
+  });
+});
+
 test('un PDF sans destinations ne fait pas échouer la lecture', () => {
   assert.deepEqual(destinationPages(Buffer.from('%PDF-1.7\n2 0 obj<</Type /Page>>endobj', 'latin1')), {});
 });

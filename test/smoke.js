@@ -164,7 +164,7 @@ app.whenReady().then(async () => {
   check('le PDF porte des signets', /\/Outlines/.test(raw), 'withLinks=' + withLinks);
   check('les liens internes deviennent des annotations', /\/Subtype\s*\/Link/.test(raw));
   const destPages = destinationPages(linked);
-  check('chaque ancre est résolue à sa page', destPages.un === 1 && destPages.deux >= 2, JSON.stringify(destPages));
+  check('chaque ancre est résolue à sa page', destPages.un === 1 && destPages.deux === 2, JSON.stringify(destPages));
   await fs.unlink(staged).catch(() => {});
 
   // Les identifiants positionnels (`h-0`, `h-1`) se décalent dès qu'un titre est
