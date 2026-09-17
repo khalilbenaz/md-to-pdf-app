@@ -443,7 +443,7 @@ window.api.onFileChanged(({ path, content }) => {
 
 // ---------- PDF / HTML export ----------
 const pdfModal = document.getElementById('pdf-modal');
-const PDF_FIELDS = ['pdf-page-size', 'pdf-landscape', 'pdf-margin', 'pdf-header-footer', 'pdf-break-h1', 'pdf-number-headings', 'pdf-header-text', 'pdf-cover'];
+const PDF_FIELDS = ['pdf-page-size', 'pdf-landscape', 'pdf-margin', 'pdf-header-footer', 'pdf-break-h1', 'pdf-number-headings', 'pdf-header-text', 'pdf-cover', 'pdf-watermark'];
 
 // The export options are the same on almost every run; remembering them saves
 // re-checking the same three boxes every time.
@@ -477,6 +477,7 @@ function readPdfOptions() {
     breakBeforeH1: document.getElementById('pdf-break-h1').checked,
     numberHeadings: document.getElementById('pdf-number-headings').checked,
     cover: document.getElementById('pdf-cover').checked,
+    watermark: document.getElementById('pdf-watermark').value,
   };
 }
 
@@ -537,6 +538,13 @@ function documentName() {
   return activeTab?.path ? activeTab.path.split(/[\\/]/).pop().replace(/\.[^.]+$/, '') : 'document';
 }
 
+// Position fixe : Chromium repeint un élément fixe sur chaque page imprimée —
+// mesuré, le flux de chacune des trois pages d'un document témoin grossit.
+function watermarkHtml(text) {
+  const clean = (text || '').trim();
+  return clean ? `<div class="pdf-watermark">${escapeHtml(clean)}</div>` : '';
+}
+
 // Une page de garde sans titre n'est qu'une page blanche : sans `title` en
 // front-matter, on n'en met pas.
 function coverHtml() {
@@ -564,7 +572,7 @@ async function buildPrintableHtml(options) {
     body { display:block; margin: 0; } header, #tabs, #sidebar, #editor, #statusbar, .modal { display:none !important; }
     main { display: block; } #preview { padding: 0; overflow: visible; }
     ${paginationCss(options)}
-  </style></head><body><div id="preview" class="markdown-body">${options.cover ? coverHtml() : ''}${preview.innerHTML}</div></body></html>`;
+  </style></head><body>${watermarkHtml(options.watermark)}<div id="preview" class="markdown-body">${options.cover ? coverHtml() : ''}${preview.innerHTML}</div></body></html>`;
 }
 
 async function doExportPdf(options) {
@@ -577,17 +585,26 @@ async function doPrint() {
   await window.api.print({ html: await buildPrintableHtml(options), options });
 }
 
-async function doExportHtml() {
+// Même gabarit que buildPrintableHtml() : un utilisateur qui coche la page de
+// garde ou remplit le filigrane doit les retrouver dans l'export HTML aussi.
+// Extraite pour être testable : doExportHtml() ouvre une boîte de dialogue
+// d'enregistrement, ce qu'un test ne peut pas déclencher.
+async function buildExportHtml(options) {
   render();
   await mermaidPending.catch(() => {});
   const bodyHtml = preview.innerHTML;
   const css = await fetch('styles.css').then(r => r.text());
   const katexCss = await loadKatexCss();
   const hljsCss = await fetch(document.getElementById('hljs-theme').href).then(r => r.text()).catch(() => '');
-  const full = `<!DOCTYPE html><html data-theme="light"><head><meta charset="utf-8"><title>${escapeHtml(activeTab?.path?.split(/[\\/]/).pop() || 'Document')}</title>${baseTag()}<style>${css}${katexCss}${hljsCss}
+  return `<!DOCTYPE html><html data-theme="light"><head><meta charset="utf-8"><title>${escapeHtml(activeTab?.path?.split(/[\\/]/).pop() || 'Document')}</title>${baseTag()}<style>${css}${katexCss}${hljsCss}
     body { max-width: 900px; margin: 2rem auto; padding: 0 1rem; font-family: -apple-system, Segoe UI, Roboto, sans-serif; }
-    @media print { ${paginationCss(readPdfOptions())} }
-  </style></head><body><div class="markdown-body">${bodyHtml}</div></body></html>`;
+    @media print { ${paginationCss(options)} }
+  </style></head><body>${watermarkHtml(options.watermark)}<div class="markdown-body">${options.cover ? coverHtml() : ''}${bodyHtml}</div></body></html>`;
+}
+
+async function doExportHtml() {
+  const options = readPdfOptions();
+  const full = await buildExportHtml(options);
   const out = await window.api.exportHtml({ html: full, defaultName: documentName() });
   if (out) fileNameEl.textContent = 'HTML : ' + out.split(/[\\/]/).pop();
 }

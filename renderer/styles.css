@@ -311,3 +311,19 @@ main.no-sidebar.no-editor { grid-template-columns: 1fr; }
   color: var(--fg-muted);
   margin: 0;
 }
+
+/* ---------- Filigrane ---------- */
+.pdf-watermark {
+  position: fixed;
+  top: 45%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 5rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: rgba(180, 30, 30, 0.14);
+  transform: rotate(-30deg);
+  pointer-events: none;
+  z-index: 9999;
+}

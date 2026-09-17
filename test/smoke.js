@@ -438,6 +438,55 @@ app.whenReady().then(async () => {
   check('pas de page de garde sans titre en front-matter',
     !JSON.parse(coverVide).garde, coverVide);
 
+  // Le CSS complet (styles.css inliné dans <style>) contient toujours le
+  // sélecteur littéral `.pdf-watermark` : chercher cette sous-chaîne dans le
+  // document entier serait vrai que le filigrane soit posé ou non. On la
+  // cherche donc dans le corps, même idiome que pour la page de garde — sauf
+  // pour la règle CSS elle-même, qui doit bien exister dans la feuille de
+  // style et vaut `position: fixed`.
+  const marque = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '# Document\\n' });
+    const avec = await window.buildPrintableHtml({ watermark: 'BROUILLON' });
+    const sans = await window.buildPrintableHtml({ watermark: '' });
+    const echappeHtml = await window.buildPrintableHtml({ watermark: '<img src=x onerror=alert(1)>' });
+    const corpsAvec = avec.slice(avec.indexOf('<body>'));
+    const corpsSans = sans.slice(sans.indexOf('<body>'));
+    const corpsEchappe = echappeHtml.slice(echappeHtml.indexOf('<body>'));
+    // escapeHtml() n'échappe que &<>"' : le texte « onerror=alert » reste tel
+    // quel de part et d'autre des chevrons échappés, ce n'est pas un signe
+    // d'échec. Ce qui compte est qu'aucune balise <img> non échappée
+    // n'atteigne le document — sinon le gestionnaire onerror s'exécuterait.
+    return JSON.stringify({
+      avec: corpsAvec.includes('pdf-watermark') && corpsAvec.includes('BROUILLON'),
+      sans: corpsSans.includes('pdf-watermark'),
+      fixe: /\\.pdf-watermark[^}]*position:\\s*fixed/.test(avec),
+      echappe: !corpsEchappe.includes('<img') && corpsEchappe.includes('&lt;img'),
+    });
+  })()`);
+  const mq = JSON.parse(marque);
+  check('le filigrane est inséré quand le champ est rempli', mq.avec, marque);
+  check('il est absent quand le champ est vide', !mq.sans, marque);
+  check('il est positionné en fixe, pour se répéter sur chaque page', mq.fixe, marque);
+  check('le texte du filigrane est échappé', mq.echappe, marque);
+
+  // doExportHtml() ouvre une boîte de dialogue d'enregistrement : on ne peut
+  // pas l'appeler depuis le test. buildExportHtml() en extrait le gabarit, et
+  // doit honorer les mêmes options que buildPrintableHtml() — page de garde
+  // et filigrane —, sinon un utilisateur qui les coche ne les voit pas dans
+  // le HTML exporté.
+  const exportAvecOptions = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '---\\ntitle: Rapport annuel\\n---\\n\\n# Contenu\\n' });
+    const html = await window.buildExportHtml({ cover: true, watermark: 'BROUILLON' });
+    const corps = html.slice(html.indexOf('<body>'));
+    return JSON.stringify({
+      garde: corps.includes('pdf-cover') && corps.includes('Rapport annuel'),
+      filigrane: corps.includes('pdf-watermark') && corps.includes('BROUILLON'),
+    });
+  })()`);
+  const eh = JSON.parse(exportAvecOptions);
+  check('l’export HTML inclut la page de garde quand l’option est cochée', eh.garde, exportAvecOptions);
+  check('l’export HTML inclut le filigrane quand le champ est rempli', eh.filigrane, exportAvecOptions);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   app.exit(failed.length ? 1 : 0);

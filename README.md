@@ -63,6 +63,11 @@ Construit avec [Electron](https://www.electronjs.org/) + [CodeMirror 6](https://
 
 ### Export & impression
 - **Export PDF** : formats A4/Letter/Legal/A3/A5, portrait/paysage, marges réglables, en-tête personnalisé et numéros de page optionnels
+- **Signets PDF** : la structure des titres devient un volet de navigation dans le lecteur, et le PDF est balisé, donc accessible
+- **Sommaire paginé** : un `[[toc]]` exporté porte le numéro de page réel de chaque titre, lu dans le PDF lui-même plutôt que deviné
+- **Liens internes cliquables** : les entrées du sommaire et les ancres du document restent navigables dans le PDF
+- **Page de garde** optionnelle, composée depuis le front-matter (`title`, `subtitle`, `author`, `date`)
+- **Filigrane** optionnel, répété sur chaque page
 - **Saut de page avant chaque titre 1** et **numérotation automatique des titres** (`1.`, `1.2`, `1.2.3`…), en option
 - **Pagination soignée** : jamais de titre orphelin en bas de page, ni de tableau, bloc de code, formule ou diagramme coupé en deux
 - **Options mémorisées** d'un export à l'autre
@@ -244,6 +249,8 @@ md-to-pdf-app/
 ├── main.js                     # Process principal Electron (IPC, fenêtres, export PDF/HTML,
 │                               #   ouverture système, lecteur par défaut)
 ├── preload.js                  # Bridge contextIsolation entre main et renderer
+├── pdf.js                      # Options de rendu, lecture des destinations d'un PDF,
+│                               #   remplissage des numéros de page (sans Electron)
 ├── renderer/
 │   ├── index.html              # Shell de l'UI
 │   ├── styles.css              # Thèmes clair/sombre, layout en grille
@@ -287,7 +294,7 @@ md-to-pdf-app/
 |---|---|
 | `npm start` | Bundle le renderer + lance l'app en dev |
 | `npm run bundle` | Bundle `renderer/editor-src.js` et `renderer/markdown-src.js` vers `editor-bundle.js` et `markdown-bundle.js` (esbuild, minifié) |
-| `npm test` | Tests unitaires du moteur (`node --test`, sans Electron) puis test de fumée end-to-end |
+| `npm test` | Tests unitaires du moteur Markdown et de la chaîne PDF (`node --test`, sans Electron) puis test de fumée end-to-end |
 | `npm run build` | Build des installateurs pour la plateforme courante |
 | `npm run build:mac` | Build `.dmg` (arm64 + x64) |
 | `npm run build:win` | Build installateur NSIS |
