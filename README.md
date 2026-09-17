@@ -40,10 +40,12 @@ Construit avec [Electron](https://www.electronjs.org/) + [CodeMirror 6](https://
 
 ### Aperçu
 - **Aperçu live** rendu à chaque frappe, avec **défilement synchronisé** (activable/désactivable)
-- **Coloration syntaxique** du code (highlight.js — 190+ langages)
+- **Coloration syntaxique** du code (highlight.js — ~45 langages courants)
 - **Formules mathématiques** via KaTeX (`$inline$` et `$$block$$`)
 - **Diagrammes Mermaid** (flowchart, séquence, Gantt, classe, état…)
 - **Thème clair / sombre** (`Cmd/Ctrl+T`), appliqué à l'éditeur, l'aperçu et les diagrammes
+- **Images locales** : les chemins relatifs sont résolus par rapport au fichier `.md`, pas à l'application
+- **Saut de page manuel** : insérez `<!-- pagebreak -->` — affiché comme un repère dans l'aperçu, appliqué à l'impression
 
 ### Gestion des fichiers
 - **Onglets multiples** — plusieurs documents ouverts en parallèle, avec déduplication (un fichier déjà ouvert n'est pas rouvert en double, et un onglet vierge est réutilisé)
@@ -54,12 +56,19 @@ Construit avec [Electron](https://www.electronjs.org/) + [CodeMirror 6](https://
 - **Ouverture depuis le système** : double-clic sur un `.md` dans le Finder / l'Explorateur, ou « Ouvrir avec »
 - **Lecteur Markdown par défaut** en un clic (macOS) — voir plus bas
 
-### Export
+### Export & impression
 - **Export PDF** : formats A4/Letter/Legal/A3/A5, portrait/paysage, marges réglables, en-tête personnalisé et numéros de page optionnels
-- **Export HTML** autonome (styles inline, prêt à partager)
+- **Saut de page avant chaque titre 1** et **numérotation automatique des titres** (`1.`, `1.2`, `1.2.3`…), en option
+- **Pagination soignée** : jamais de titre orphelin en bas de page, ni de tableau, bloc de code, formule ou diagramme coupé en deux
+- **Options mémorisées** d'un export à l'autre
+- **Impression directe** (`Cmd/Ctrl+P`) vers l'imprimante système
+- **Export HTML** autonome : styles **et images** embarqués (data URI), le fichier reste lisible une fois envoyé à quelqu'un d'autre
+- Les exports reprennent l'aperçu tel quel — KaTeX déjà composé, diagrammes déjà rendus en SVG
 
-### Confidentialité
+### Sécurité & confidentialité
 - **Zéro télémétrie**, 100 % local — aucun appel réseau, aucune donnée ne quitte votre machine
+- **Content Security Policy** stricte : un `.md` ouvert depuis l'extérieur ne peut ni exécuter de `<script>`, ni déclencher un `onerror=`, ni charger une ressource distante
+- **Mermaid en `securityLevel: 'strict'`** : pas de HTML arbitraire dans les libellés de diagramme
 
 ---
 
@@ -125,6 +134,7 @@ La fenêtre s'ouvre **maximisée** au démarrage.
 | Fermer onglet | `Cmd/Ctrl+W` |
 | Export PDF | `Cmd/Ctrl+E` |
 | Export HTML | `Cmd/Ctrl+Shift+E` |
+| Imprimer | `Cmd/Ctrl+P` |
 | Basculer volet code | `Cmd/Ctrl+/` |
 | Basculer thème | `Cmd/Ctrl+T` |
 | Rechercher (dans l'éditeur) | `Cmd/Ctrl+F` |
@@ -234,8 +244,16 @@ md-to-pdf-app/
 │   ├── styles.css              # Thèmes clair/sombre, layout en grille
 │   ├── editor-src.js           # Source CodeMirror 6 (bundlée par esbuild)
 │   ├── editor-bundle.js        # Bundle généré (ignoré par git)
+│   ├── vendor-src.js           # Source highlight.js (bundlée par esbuild)
+│   ├── vendor-bundle.js        # Bundle généré (ignoré par git)
 │   └── renderer.js             # Logique UI : onglets, aperçu, marked, mermaid, katex,
 │                               #   TOC, recherche, préférences
+├── build/
+│   ├── icon.html               # Source de l'icône (SVG)
+│   ├── make-icon.js            # Rend l'icône en PNG 1024 via Electron
+│   ├── icon.png / icon.icns    # Icônes consommées par electron-builder
+├── test/smoke.js               # Test de fumée end-to-end (npm test)
+├── .github/workflows/ci.yml        # CI : test de fumée macOS / Linux / Windows
 ├── .github/workflows/release.yml   # CI : build & publication des installateurs
 ├── installer.iss               # Script Inno Setup (installateur Windows alternatif)
 ├── package.json                # Dépendances, scripts, config electron-builder
@@ -244,7 +262,9 @@ md-to-pdf-app/
 
 **Flux d'export PDF**
 1. Le renderer produit le HTML final (marked + highlight.js + KaTeX + Mermaid rendu en SVG).
-2. Le main process charge ce HTML dans une `BrowserWindow` cachée.
+2. Le main process écrit ce HTML dans un fichier temporaire et le charge dans une
+   `BrowserWindow` cachée — un document `file://` peut atteindre les polices KaTeX
+   et les images référencées par le markdown, ce qu'une URL `data:` ne peut pas.
 3. `webContents.printToPDF()` génère le PDF via le moteur d'impression intégré de Chromium.
 4. Le fichier est écrit puis révélé dans le Finder / l'Explorateur.
 
@@ -259,7 +279,8 @@ md-to-pdf-app/
 | Script | Description |
 |---|---|
 | `npm start` | Bundle le renderer + lance l'app en dev |
-| `npm run bundle` | Bundle uniquement `editor-src.js` → `editor-bundle.js` (esbuild) |
+| `npm run bundle` | Bundle `editor-src.js` et `vendor-src.js` → `*-bundle.js` (esbuild, minifié) |
+| `npm test` | Test de fumée end-to-end : lance le vrai renderer dans Electron et vérifie KaTeX, highlight.js, Mermaid, la CSP et les polices du PDF |
 | `npm run build` | Build des installateurs pour la plateforme courante |
 | `npm run build:mac` | Build `.dmg` (arm64 + x64) |
 | `npm run build:win` | Build installateur NSIS |

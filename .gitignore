@@ -9,3 +9,5 @@ Thumbs.db
 .vscode/
 .idea/
 renderer/editor-bundle.js
+renderer/vendor-bundle.js
+build/icon.iconset/

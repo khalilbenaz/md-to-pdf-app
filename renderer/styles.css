@@ -138,3 +138,23 @@ main.no-sidebar.no-editor { grid-template-columns: 1fr; }
   display: flex; align-items: center; justify-content: center; z-index: 1000;
   font-size: 20px; color: var(--accent); pointer-events: none;
 }
+
+/* `<!-- pagebreak -->` marker: a hint on screen, a real page break on paper. */
+#preview .page-break {
+  border-top: 1px dashed var(--border);
+  margin: 1.5rem 0;
+  height: 0;
+  position: relative;
+}
+#preview .page-break::after {
+  content: 'saut de page';
+  position: absolute;
+  top: -0.65rem;
+  right: 0;
+  padding: 0 0.4rem;
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  background: var(--bg);
+}

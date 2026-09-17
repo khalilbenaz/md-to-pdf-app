@@ -12,10 +12,9 @@ function setupMarked() {
   if (window.markedKatex) marked.use(window.markedKatex({ throwOnError: false }));
   marked.use({ gfm: true, breaks: false });
 }
-if (window.hljs) setupMarked();
-else window.addEventListener('hljs-ready', () => { setupMarked(); render(); });
+setupMarked();
 
-if (window.mermaid) mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
+if (window.mermaid) mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
 
 // ---------- Front-matter ----------
 function stripFrontMatter(md) {
@@ -132,10 +131,30 @@ function escapeHtml(s) {
 }
 
 // ---------- Render ----------
+// Relative image paths belong to the markdown file, not to index.html, so the
+// preview has to rebase them itself — it cannot use <base> without breaking the
+// relative paths of its own scripts and stylesheets.
+function resolveLocalImages() {
+  if (!activeTab?.path) return;
+  const dir = new URL('file://' + activeTab.path.replace(/[\\/][^\\/]*$/, '') + '/').href;
+  preview.querySelectorAll('img[src]').forEach(img => {
+    const raw = img.getAttribute('src');
+    if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('//')) return;
+    try { img.src = new URL(raw, dir).href; } catch {}
+  });
+}
+
+// mermaid.run() paints its SVGs asynchronously; the exporters await this so they
+// never snapshot the preview mid-render.
+let mermaidPending = Promise.resolve();
+
 function render() {
   const src = editor ? editor.getValue() : '';
   const { body } = stripFrontMatter(src);
-  preview.innerHTML = marked.parse(body);
+  // `<!-- pagebreak -->` is invisible on screen but has to survive as an element
+  // for the export stylesheet to hang a `break-after` on it.
+  preview.innerHTML = marked.parse(body.replace(/<!--\s*pagebreak\s*-->/gi, '<div class="page-break"></div>'));
+  resolveLocalImages();
 
   if (window.mermaid) {
     const blocks = preview.querySelectorAll('pre code.language-mermaid, pre code.hljs.language-mermaid');
@@ -147,7 +166,7 @@ function render() {
       div.textContent = el.textContent;
       pre.replaceWith(div);
     });
-    try { mermaid.run({ querySelector: '.mermaid' }); } catch {}
+    try { mermaidPending = Promise.resolve(mermaid.run({ querySelector: '.mermaid' })); } catch {}
   }
 
   buildToc();
@@ -323,7 +342,7 @@ function setTheme(t) {
   document.getElementById('hljs-theme').href = t === 'dark'
     ? '../node_modules/highlight.js/styles/github-dark.min.css'
     : '../node_modules/highlight.js/styles/github.min.css';
-  if (window.mermaid) mermaid.initialize({ startOnLoad: false, theme: t === 'dark' ? 'dark' : 'default', securityLevel: 'loose' });
+  if (window.mermaid) mermaid.initialize({ startOnLoad: false, theme: t === 'dark' ? 'dark' : 'default', securityLevel: 'strict' });
   if (editor) editor.setDark(t === 'dark');
   localStorage.setItem('theme', t);
   render();
@@ -433,51 +452,137 @@ window.api.onFileChanged(({ path, content }) => {
 
 // ---------- PDF / HTML export ----------
 const pdfModal = document.getElementById('pdf-modal');
-function showPdfModal() { pdfModal.classList.remove('hidden'); }
-function hidePdfModal() { pdfModal.classList.add('hidden'); }
-document.getElementById('pdf-cancel').addEventListener('click', hidePdfModal);
-document.getElementById('pdf-confirm').addEventListener('click', async () => {
-  const options = {
+const PDF_FIELDS = ['pdf-page-size', 'pdf-landscape', 'pdf-margin', 'pdf-header-footer', 'pdf-break-h1', 'pdf-number-headings', 'pdf-header-text'];
+
+// The export options are the same on almost every run; remembering them saves
+// re-checking the same three boxes every time.
+function loadPdfPrefs() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('pdfOptions') || '{}'); } catch {}
+  for (const id of PDF_FIELDS) {
+    const el = document.getElementById(id);
+    if (!el || !(id in saved)) continue;
+    if (el.type === 'checkbox') el.checked = !!saved[id];
+    else el.value = saved[id];
+  }
+}
+function savePdfPrefs() {
+  const saved = {};
+  for (const id of PDF_FIELDS) {
+    const el = document.getElementById(id);
+    if (el) saved[id] = el.type === 'checkbox' ? el.checked : el.value;
+  }
+  localStorage.setItem('pdfOptions', JSON.stringify(saved));
+}
+loadPdfPrefs();
+
+function readPdfOptions() {
+  return {
     pageSize: document.getElementById('pdf-page-size').value,
     landscape: document.getElementById('pdf-landscape').value === 'true',
     margin: parseFloat(document.getElementById('pdf-margin').value) || 0.5,
     headerFooter: document.getElementById('pdf-header-footer').checked,
     headerText: document.getElementById('pdf-header-text').value,
+    breakBeforeH1: document.getElementById('pdf-break-h1').checked,
+    numberHeadings: document.getElementById('pdf-number-headings').checked,
   };
+}
+
+function showPdfModal() { pdfModal.classList.remove('hidden'); }
+function hidePdfModal() { pdfModal.classList.add('hidden'); }
+document.getElementById('pdf-cancel').addEventListener('click', hidePdfModal);
+document.getElementById('pdf-confirm').addEventListener('click', async () => {
+  const options = readPdfOptions();
+  savePdfPrefs();
   hidePdfModal();
   await doExportPdf(options);
 });
 
-async function doExportPdf(options) {
-  const { body } = stripFrontMatter(editor.getValue());
-  const bodyHtml = marked.parse(body);
-  const css = await fetch('styles.css').then(r => r.text());
-  const katexCss = await fetch('../node_modules/katex/dist/katex.min.css').then(r => r.text()).catch(() => '');
-  const hljsCss = await fetch(document.getElementById('hljs-theme').href).then(r => r.text()).catch(() => '');
-  const mermaidSvgs = [...preview.querySelectorAll('.mermaid svg')].map(s => s.outerHTML);
-  let html = bodyHtml;
-  let i = 0;
-  html = html.replace(/<pre><code class="language-mermaid">[\s\S]*?<\/code><\/pre>/g, () => `<div class="mermaid">${mermaidSvgs[i++] || ''}</div>`);
-  const full = `<!DOCTYPE html><html data-theme="light"><head><meta charset="utf-8"><style>${css}${katexCss}${hljsCss}
+// KaTeX ships its fonts as `url(fonts/...)` relative to katex.min.css. Once the
+// stylesheet is inlined into a standalone export those paths point nowhere, so
+// rewrite them to absolute file:// URLs before handing the CSS over.
+async function loadKatexCss() {
+  const href = new URL('../node_modules/katex/dist/katex.min.css', location.href);
+  const css = await fetch(href).then(r => r.text()).catch(() => '');
+  return css.replace(/url\(([\'"]?)fonts\//g, (_m, q) => `url(${q}${new URL('fonts/', href).href}`);
+}
+
+// Chromium will happily strand a heading at the foot of a page or split a table
+// across two; these are the rules that stop it, plus the two opt-in behaviours
+// offered in the export dialog.
+function paginationCss(options = {}) {
+  return `
+    h1, h2, h3, h4, h5, h6 { break-after: avoid; break-inside: avoid; }
+    table, pre, blockquote, figure, img, .mermaid, .katex-display { break-inside: avoid; }
+    tr, li { break-inside: avoid; }
+    p { orphans: 3; widows: 3; }
+    .page-break { break-after: page; height: 0; }
+    ${options.breakBeforeH1 ? '#preview > h1, .markdown-body > h1 { break-before: page; } #preview > h1:first-child, .markdown-body > h1:first-child { break-before: auto; }' : ''}
+    ${options.numberHeadings ? `
+    .markdown-body { counter-reset: h1 h2 h3 h4; }
+    .markdown-body h1 { counter-increment: h1; counter-reset: h2 h3 h4; }
+    .markdown-body h2 { counter-increment: h2; counter-reset: h3 h4; }
+    .markdown-body h3 { counter-increment: h3; counter-reset: h4; }
+    .markdown-body h4 { counter-increment: h4; }
+    .markdown-body h1::before { content: counter(h1) '. '; }
+    .markdown-body h2::before { content: counter(h1) '.' counter(h2) '. '; }
+    .markdown-body h3::before { content: counter(h1) '.' counter(h2) '.' counter(h3) '. '; }
+    .markdown-body h4::before { content: counter(h1) '.' counter(h2) '.' counter(h3) '.' counter(h4) '. '; }` : ''}
+  `;
+}
+
+// Relative image paths in the markdown are resolved against the document it came
+// from, not against the temp file the exporter renders.
+function baseTag() {
+  if (!activeTab?.path) return '';
+  const dir = activeTab.path.replace(/[\\/][^\\/]*$/, '');
+  return `<base href="${escapeHtml(new URL('file://' + dir + '/').href)}">`;
+}
+
+function documentName() {
+  return activeTab?.path ? activeTab.path.split(/[\\/]/).pop().replace(/\.[^.]+$/, '') : 'document';
+}
+
+// Everything that leaves the app — PDF, print, standalone HTML — is built from
+// the preview itself rather than re-parsed, so what ships is what was on screen:
+// KaTeX already typeset, mermaid already painted as SVG.
+async function buildPrintableHtml(options) {
+  render();
+  await mermaidPending.catch(() => {});
+  const [css, katexCss, hljsCss] = await Promise.all([
+    fetch('styles.css').then(r => r.text()),
+    loadKatexCss(),
+    fetch(document.getElementById('hljs-theme').href).then(r => r.text()).catch(() => ''),
+  ]);
+  return `<!DOCTYPE html><html data-theme="light"><head><meta charset="utf-8"><title>${escapeHtml(documentName())}</title>${baseTag()}<style>${css}${katexCss}${hljsCss}
     body { display:block; margin: 0; } header, #tabs, #sidebar, #editor, #statusbar, .modal { display:none !important; }
     main { display: block; } #preview { padding: 0; overflow: visible; }
-  </style></head><body><div id="preview" class="markdown-body">${html}</div></body></html>`;
-  const defaultName = activeTab?.path ? activeTab.path.split(/[\\/]/).pop().replace(/\.[^.]+$/, '') : 'document';
-  const out = await window.api.exportPdf({ html: full, defaultName, options });
+    ${paginationCss(options)}
+  </style></head><body><div id="preview" class="markdown-body">${preview.innerHTML}</div></body></html>`;
+}
+
+async function doExportPdf(options) {
+  const out = await window.api.exportPdf({ html: await buildPrintableHtml(options), defaultName: documentName(), options });
   if (out) fileNameEl.textContent = 'PDF : ' + out.split(/[\\/]/).pop();
 }
 
+async function doPrint() {
+  const options = readPdfOptions();
+  await window.api.print({ html: await buildPrintableHtml(options), options });
+}
+
 async function doExportHtml() {
-  const { body } = stripFrontMatter(editor.getValue());
-  const bodyHtml = marked.parse(body);
+  render();
+  await mermaidPending.catch(() => {});
+  const bodyHtml = preview.innerHTML;
   const css = await fetch('styles.css').then(r => r.text());
-  const katexCss = await fetch('../node_modules/katex/dist/katex.min.css').then(r => r.text()).catch(() => '');
+  const katexCss = await loadKatexCss();
   const hljsCss = await fetch(document.getElementById('hljs-theme').href).then(r => r.text()).catch(() => '');
-  const full = `<!DOCTYPE html><html data-theme="light"><head><meta charset="utf-8"><title>${escapeHtml(activeTab?.path?.split(/[\\/]/).pop() || 'Document')}</title><style>${css}${katexCss}${hljsCss}
+  const full = `<!DOCTYPE html><html data-theme="light"><head><meta charset="utf-8"><title>${escapeHtml(activeTab?.path?.split(/[\\/]/).pop() || 'Document')}</title>${baseTag()}<style>${css}${katexCss}${hljsCss}
     body { max-width: 900px; margin: 2rem auto; padding: 0 1rem; font-family: -apple-system, Segoe UI, Roboto, sans-serif; }
+    @media print { ${paginationCss(readPdfOptions())} }
   </style></head><body><div class="markdown-body">${bodyHtml}</div></body></html>`;
-  const defaultName = activeTab?.path ? activeTab.path.split(/[\\/]/).pop().replace(/\.[^.]+$/, '') : 'document';
-  const out = await window.api.exportHtml({ html: full, defaultName });
+  const out = await window.api.exportHtml({ html: full, defaultName: documentName() });
   if (out) fileNameEl.textContent = 'HTML : ' + out.split(/[\\/]/).pop();
 }
 
@@ -496,6 +601,7 @@ window.api.onMenu('menu:save', saveFile);
 window.api.onMenu('menu:close-tab', () => activeTab && closeTab(activeTab));
 window.api.onMenu('menu:export', showPdfModal);
 window.api.onMenu('menu:export-html', doExportHtml);
+window.api.onMenu('menu:print', doPrint);
 window.api.onMenu('menu:toggle-editor', () => { toggleEditor.checked = !toggleEditor.checked; toggleEditor.dispatchEvent(new Event('change')); });
 window.api.onMenu('menu:toggle-theme', () => document.getElementById('btn-theme').click());
 window.api.onMenu('menu:set-default', setDefaultReader);

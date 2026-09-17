@@ -1,0 +1,38 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+  html,body{margin:0;width:1024px;height:1024px;background:transparent}
+  svg{display:block}
+</style></head><body>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="sheet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#eef2f7"/>
+    </linearGradient>
+    <filter id="drop" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="26" flood-color="#0b1b3a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <rect x="72" y="72" width="880" height="880" rx="200" fill="url(#bg)"/>
+  <rect x="72" y="72" width="880" height="880" rx="200" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="6"/>
+
+  <g filter="url(#drop)">
+    <path d="M316 214h268l150 150v446a44 44 0 0 1-44 44H316a44 44 0 0 1-44-44V258a44 44 0 0 1 44-44z" fill="url(#sheet)"/>
+    <path d="M584 214l150 150H628a44 44 0 0 1-44-44V214z" fill="#c7d2fe"/>
+  </g>
+
+  <!-- markdown mark -->
+  <g fill="#1d4ed8">
+    <path d="M338 470h46l40 54 40-54h46v150h-46v-82l-40 52-40-52v82h-46z"/>
+    <path d="M556 470h46v84h52l-75 78-75-78h52z"/>
+  </g>
+
+  <!-- PDF badge -->
+  <g>
+    <rect x="536" y="656" width="256" height="128" rx="34" fill="#dc2626"/>
+    <text x="664" y="744" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="82" font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="2">PDF</text>
+  </g>
+</svg>
+</body></html>

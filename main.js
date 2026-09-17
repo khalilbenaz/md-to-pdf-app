@@ -85,6 +85,7 @@ function createWindow() {
         { type: 'separator' },
         { label: 'Export PDF…', accelerator: 'CmdOrCtrl+E', click: () => mainWindow.webContents.send('menu:export') },
         { label: 'Export HTML…', accelerator: 'CmdOrCtrl+Shift+E', click: () => mainWindow.webContents.send('menu:export-html') },
+        { label: 'Imprimer…', accelerator: 'CmdOrCtrl+P', click: () => mainWindow.webContents.send('menu:print') },
         { type: 'separator' },
         { label: 'Set as Default Markdown Reader', click: () => mainWindow.webContents.send('menu:set-default') },
         { type: 'separator' },
@@ -348,6 +349,32 @@ ipcMain.handle('file:watch', async (_e, filePath) => {
   });
 });
 
+// Chromium resolves nothing from a data: URL, so every export renders from a
+// real file on disk instead. Callers get the path and must clean it up.
+async function stageHtml(html) {
+  const file = path.join(app.getPath('temp'), `mdtopdf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`);
+  await fs.writeFile(file, html, 'utf8');
+  return file;
+}
+
+ipcMain.handle('file:print', async (_e, { html, options }) => {
+  const staged = await stageHtml(html);
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  await win.loadFile(staged);
+  const m = options?.margin ?? 0.5;
+  await new Promise((resolve) => {
+    win.webContents.print({
+      printBackground: true,
+      landscape: !!options?.landscape,
+      pageSize: options?.pageSize || 'A4',
+      margins: { marginType: 'custom', top: m, bottom: m, left: m, right: m },
+    }, () => resolve());
+  });
+  win.close();
+  await fs.unlink(staged).catch(() => {});
+  return true;
+});
+
 ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => {
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
@@ -355,8 +382,9 @@ ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => 
   });
   if (canceled || !filePath) return null;
 
+  const stagedHtml = await stageHtml(html);
   const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
-  await pdfWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  await pdfWin.loadFile(stagedHtml);
   const m = options?.margin ?? 0.5;
   const buffer = await pdfWin.webContents.printToPDF({
     printBackground: true,
@@ -369,9 +397,34 @@ ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => 
   });
   await fs.writeFile(filePath, buffer);
   pdfWin.close();
+  await fs.unlink(stagedHtml).catch(() => {});
   shell.showItemInFolder(filePath);
   return filePath;
 });
+
+const MIME_BY_EXT = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+  '.svg': 'image/svg+xml', '.webp': 'image/webp', '.bmp': 'image/bmp', '.avif': 'image/avif',
+};
+
+// An exported .html carrying file:// image paths breaks the moment it is sent to
+// someone else, so the images travel with it.
+async function inlineLocalImages(html) {
+  const seen = new Map();
+  const matches = [...html.matchAll(/src="(file:\/\/[^"]+)"/g)];
+  for (const [, url] of matches) {
+    if (seen.has(url)) continue;
+    try {
+      const file = decodeURIComponent(new URL(url).pathname);
+      const mime = MIME_BY_EXT[path.extname(file).toLowerCase()];
+      if (!mime) continue;
+      const data = await fs.readFile(file);
+      seen.set(url, `data:${mime};base64,${data.toString('base64')}`);
+    } catch {}
+  }
+  for (const [url, dataUri] of seen) html = html.split(`src="${url}"`).join(`src="${dataUri}"`);
+  return html;
+}
 
 ipcMain.handle('file:export-html', async (_e, { html, defaultName }) => {
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
@@ -379,6 +432,6 @@ ipcMain.handle('file:export-html', async (_e, { html, defaultName }) => {
     defaultPath: (defaultName || 'document') + '.html',
   });
   if (canceled || !filePath) return null;
-  await fs.writeFile(filePath, html, 'utf8');
+  await fs.writeFile(filePath, await inlineLocalImages(html), 'utf8');
   return filePath;
 });
