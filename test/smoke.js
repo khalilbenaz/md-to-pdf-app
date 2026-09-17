@@ -3,7 +3,7 @@
 // that shipped silently — the KaTeX extension going unregistered because it was
 // chained to a highlight.js import that threw, mermaid vanishing from exports
 // when the code-block class changed, KaTeX fonts not resolving in the PDF.
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
 
@@ -486,6 +486,103 @@ app.whenReady().then(async () => {
   const eh = JSON.parse(exportAvecOptions);
   check('l’export HTML inclut la page de garde quand l’option est cochée', eh.garde, exportAvecOptions);
   check('l’export HTML inclut le filigrane quand le champ est rempli', eh.filigrane, exportAvecOptions);
+
+
+  // ── I2 / I3 : les deux handlers du processus principal ─────────────────────
+  // main.js n'exporte rien : ses handlers ne sont joignables que par IPC depuis
+  // un renderer, et `webContents.print()` ouvrirait la boîte système. On
+  // intercepte donc `ipcMain.handle` avant de charger le module, ce qui donne
+  // prise sur les fonctions elles-mêmes. Quelques canaux sont déjà stubbés en
+  // tête de ce fichier : le second enregistrement lève, sans conséquence
+  // puisque c'est la référence capturée qu'on appelle.
+  const handlers = {};
+  const vraiHandle = ipcMain.handle.bind(ipcMain);
+  ipcMain.handle = (channel, fn) => { handlers[channel] = fn; try { vraiHandle(channel, fn); } catch {} };
+  require(path.join(root, 'main.js'));
+  ipcMain.handle = vraiHandle;
+  await new Promise((r) => setTimeout(r, 1500));
+  check('les handlers d’export et d’impression sont joignables',
+    typeof handlers['file:print'] === 'function' && typeof handlers['file:export-pdf'] === 'function',
+    Object.keys(handlers).join(', '));
+
+  const tempDir = app.getPath('temp');
+  const htmlTemporaires = async () => (await fs.readdir(tempDir)).filter((f) => /^mdtopdf-\d+-\w+\.html$/.test(f));
+
+  // --- I2 : un loadFile en échec ne doit rien laisser derrière lui ---
+  // Le relecteur a déclenché deux ERR_FAILED sur `loadFile` pendant ses essais :
+  // sans try/finally, la fenêtre cachée reste vivante jusqu'à la fermeture de
+  // l'application et le fichier temporaire — le document entier, images en data
+  // URI comprises — reste sur le disque, à chaque tentative.
+  const htmlAvantFuite = await htmlTemporaires();
+  const fenetresAvant = BrowserWindow.getAllWindows().length;
+  const vraiLoadFile = BrowserWindow.prototype.loadFile;
+  BrowserWindow.prototype.loadFile = () => Promise.reject(new Error('ERR_FAILED (-2) loading'));
+  let aLeve = false;
+  try {
+    await handlers['file:print'](null, { html: '<!DOCTYPE html><html><body>x</body></html>', options: {} });
+  } catch { aLeve = true; }
+  BrowserWindow.prototype.loadFile = vraiLoadFile;
+  await new Promise((r) => setTimeout(r, 500));
+  const htmlApresFuite = await htmlTemporaires();
+  const restes = htmlApresFuite.filter((f) => !htmlAvantFuite.includes(f));
+  check('un loadFile en échec fait bien remonter l’erreur de l’impression', aLeve);
+  check('I2 — l’impression ne laisse pas de fichier temporaire derrière elle',
+    restes.length === 0, JSON.stringify(restes));
+  check('I2 — l’impression ne laisse pas de fenêtre cachée vivante',
+    BrowserWindow.getAllWindows().length <= fenetresAvant,
+    fenetresAvant + ' → ' + BrowserWindow.getAllWindows().length);
+
+  // --- I2 : dans l'export, `close()` ne doit pas emporter le ménage ---
+  // Sur une fenêtre déjà détruite, `close()` lève ; il précédait les
+  // suppressions, qui n'avaient alors pas lieu.
+  const vraiSaveDialog = dialog.showSaveDialog;
+  const vraiShowItem = shell.showItemInFolder;
+  const vraiClose = BrowserWindow.prototype.close;
+  const ciblePdf = path.join(tempDir, `mdtopdf-test-export-${Date.now()}.pdf`);
+  dialog.showSaveDialog = async () => ({ canceled: false, filePath: ciblePdf });
+  shell.showItemInFolder = () => {};
+  BrowserWindow.prototype.close = function () { throw new Error('Object has been destroyed'); };
+  const htmlAvantExport = await htmlTemporaires();
+  const fenetresAvantExport = BrowserWindow.getAllWindows();
+  try {
+    await handlers['file:export-pdf'](null, {
+      html: '<!DOCTYPE html><html><body><h1>Un</h1></body></html>', defaultName: 'test', options: {},
+    });
+  } catch {}
+  BrowserWindow.prototype.close = vraiClose;
+  dialog.showSaveDialog = vraiSaveDialog;
+  shell.showItemInFolder = vraiShowItem;
+  for (const w of BrowserWindow.getAllWindows()) if (!fenetresAvantExport.includes(w)) w.destroy();
+  await new Promise((r) => setTimeout(r, 300));
+  const restesExport = (await htmlTemporaires()).filter((f) => !htmlAvantExport.includes(f));
+  check('I2 — l’export supprime ses fichiers temporaires même si close() lève',
+    restesExport.length === 0, JSON.stringify(restesExport));
+  await fs.unlink(ciblePdf).catch(() => {});
+
+  // --- I3 : l'impression part sur un sommaire paginé, comme l'export ---
+  // Cmd/Ctrl+P puis « Enregistrer au format PDF » dans la boîte système est un
+  // geste courant sous macOS : il donnait un sommaire aux emplacements vides
+  // alors que le bouton « Exporter » d'à côté, sur le même document, les
+  // remplit. On remplace `print()` par un relevé du document réellement chargé
+  // au moment de l'impression — la boîte système n'a pas sa place dans un test.
+  const wcProto = Object.getPrototypeOf(win.webContents);
+  const vraiPrint = wcProto.print;
+  let imprime = null;
+  wcProto.print = function (_opts, cb) {
+    this.executeJavaScript(
+      'JSON.stringify([...document.querySelectorAll(".md-toc-page")].map(s => s.textContent))'
+    ).then((r) => { imprime = r; cb(true, ''); }, (e) => { imprime = 'erreur: ' + e.message; cb(false, ''); });
+  };
+  const htmlAImprimer = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '[[toc]]\\n\\n# Un\\n\\n<!-- pagebreak -->\\n\\n# Deux\\n' });
+    return await window.buildPrintableHtml({});
+  })()`);
+  await handlers['file:print'](null, { html: htmlAImprimer, options: {} });
+  wcProto.print = vraiPrint;
+  check('I3 — l’impression part sur un sommaire paginé, comme l’export',
+    typeof vraiPrint === 'function' && imprime !== null
+      && JSON.parse(imprime.startsWith('[') ? imprime : '[]').join(',') === '1,2',
+    String(imprime));
 
 
   // ── I4 : la chaîne complète sur un VRAI PDF long, accentué et paginé ───────

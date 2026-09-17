@@ -184,13 +184,20 @@ function fillTocPages(html, pages) {
   );
 }
 
+// Y a-t-il quelque chose à remplir ? L'export rend de toute façon un premier
+// PDF dont il a l'usage ; l'impression, elle, n'en rendrait un que pour mesurer,
+// et doit pouvoir s'en dispenser. Une seule définition de la question, partagée.
+function hasTocSlots(html) {
+  return html.includes('class="md-toc-page"');
+}
+
 // Décide s'il faut une seconde passe, et prépare le HTML à rendre. Isolé du
 // processus principal pour être exerçable sans navigateur : c'est la règle qui
 // évite de doubler le coût d'un export sur un document sans sommaire.
 function tocSecondPass(html, pdfBuffer) {
-  if (!html.includes('class="md-toc-page"')) return { needed: false, html };
+  if (!hasTocSlots(html)) return { needed: false, html };
   const numbered = fillTocPages(html, destinationPages(pdfBuffer));
   return numbered === html ? { needed: false, html } : { needed: true, html: numbered };
 }
 
-module.exports = { pdfOptions, destinationPages, fillTocPages, decodePdfName, tocSecondPass };
+module.exports = { pdfOptions, destinationPages, fillTocPages, decodePdfName, hasTocSlots, tocSecondPass };

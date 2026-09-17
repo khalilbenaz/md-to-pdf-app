@@ -4,7 +4,7 @@ const { existsSync } = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const chokidar = require('chokidar');
-const { pdfOptions, tocSecondPass } = require('./pdf.js');
+const { pdfOptions, hasTocSlots, tocSecondPass } = require('./pdf.js');
 
 let mainWindow;
 let watcher = null;
@@ -400,20 +400,46 @@ async function stageHtml(html) {
 }
 
 ipcMain.handle('file:print', async (_e, { html, options }) => {
-  const staged = await stageHtml(html);
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
-  await win.loadFile(staged);
-  const m = options?.margin ?? 0.5;
-  await new Promise((resolve) => {
-    win.webContents.print({
-      printBackground: true,
-      landscape: !!options?.landscape,
-      pageSize: options?.pageSize || 'A4',
-      margins: { marginType: 'custom', top: m, bottom: m, left: m, right: m },
-    }, () => resolve());
-  });
-  win.close();
-  await fs.unlink(staged).catch(() => {});
+  let staged;
+  let restaged;
+  try {
+    staged = await stageHtml(html);
+    await win.loadFile(staged);
+    // « Enregistrer au format PDF » depuis la boîte système est un geste courant
+    // sous macOS : l'impression fait donc la même mesure que l'export, sinon le
+    // même document donne un sommaire aux emplacements vides d'un côté et
+    // rempli de l'autre, sans que rien ne le signale. Le PDF de la mesure n'est
+    // pas conservé — c'est la fenêtre rechargée qui part à l'impression. Sans
+    // emplacement à remplir, il n'y a rien à mesurer et la passe est sautée.
+    if (hasTocSlots(html)) {
+      const mesure = await win.webContents.printToPDF(pdfOptions(options));
+      const { needed, html: numbered } = tocSecondPass(html, mesure);
+      if (needed) {
+        restaged = await stageHtml(numbered);
+        await win.loadFile(restaged);
+      }
+    }
+    const m = options?.margin ?? 0.5;
+    await new Promise((resolve) => {
+      win.webContents.print({
+        printBackground: true,
+        landscape: !!options?.landscape,
+        pageSize: options?.pageSize || 'A4',
+        margins: { marginType: 'custom', top: m, bottom: m, left: m, right: m },
+      }, () => resolve());
+    });
+  } finally {
+    // Sans ce `finally`, un `loadFile` en échec — deux ERR_FAILED relevés en
+    // revue — laissait la fenêtre cachée vivante jusqu'à la fermeture de
+    // l'application et le fichier temporaire sur le disque, à chaque tentative.
+    // Ce fichier porte le document entier, images en data URI comprises.
+    // Les suppressions d'abord, `close()` isolé ensuite : sur une fenêtre déjà
+    // détruite, `close()` lève et emporterait le ménage avec lui.
+    if (staged) await fs.unlink(staged).catch(() => {});
+    if (restaged) await fs.unlink(restaged).catch(() => {});
+    try { win.close(); } catch {}
+  }
   return true;
 });
 
@@ -442,9 +468,11 @@ ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => 
     }
     await fs.writeFile(filePath, buffer);
   } finally {
-    pdfWin.close();
+    // Les suppressions avant la fermeture : sur une fenêtre déjà détruite,
+    // `close()` lève, et les fichiers temporaires restaient alors sur le disque.
     await fs.unlink(stagedHtml).catch(() => {});
     if (restaged) await fs.unlink(restaged).catch(() => {});
+    try { pdfWin.close(); } catch {}
   }
   shell.showItemInFolder(filePath);
   return filePath;

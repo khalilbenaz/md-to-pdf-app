@@ -2,7 +2,7 @@
 // directement, là où le test de fumée doit démarrer un navigateur.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { pdfOptions, destinationPages, fillTocPages, decodePdfName, tocSecondPass } = require('../pdf.js');
+const { pdfOptions, destinationPages, fillTocPages, decodePdfName, hasTocSlots, tocSecondPass } = require('../pdf.js');
 
 test('les signets exigent aussi le PDF balisé', () => {
   // Mesuré sur Electron 32 : generateDocumentOutline seul ne produit aucun
@@ -164,6 +164,14 @@ const PDF_TEMOIN = Buffer.from([
   '17 0 obj<</un [2 0 R /XYZ 0 0 0]>>endobj',
   '20 0 obj<</Type /Catalog /Dests 17 0 R>>endobj',
 ].join('\n'), 'latin1');
+
+test('la présence d\'emplacements à remplir se lit sur le HTML seul', () => {
+  // L'impression n'a pas d'usage du premier PDF : elle ne le rendrait que pour
+  // mesurer. Elle doit donc pouvoir poser la question sans PDF sous la main,
+  // et la poser exactement comme `tocSecondPass` — une seule définition.
+  assert.equal(hasTocSlots('<span class="md-toc-page" data-target="un"></span>'), true);
+  assert.equal(hasTocSlots('<p>Rien à remplir ici.</p>'), false);
+});
 
 test('un HTML sans emplacement ne déclenche pas de seconde passe', () => {
   const html = '<p>Rien à remplir ici.</p>';
