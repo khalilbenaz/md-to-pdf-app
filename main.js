@@ -72,34 +72,75 @@ function createWindow() {
 
   const isMac = process.platform === 'darwin';
   const menu = Menu.buildFromTemplate([
-    ...(isMac ? [{ role: 'appMenu' }] : []),
-    {
-      label: 'File',
+    ...(isMac ? [{
+      label: app.name,
       submenu: [
-        { label: 'New Tab', accelerator: 'CmdOrCtrl+N', click: () => mainWindow.webContents.send('menu:new') },
-        { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => mainWindow.webContents.send('menu:open') },
-        { label: 'Open Folder…', accelerator: 'CmdOrCtrl+Shift+O', click: () => mainWindow.webContents.send('menu:open-folder') },
+        { label: `À propos de ${app.name}`, role: 'about' },
         { type: 'separator' },
-        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => mainWindow.webContents.send('menu:save') },
-        { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => mainWindow.webContents.send('menu:close-tab') },
+        { label: 'Services', role: 'services' },
         { type: 'separator' },
-        { label: 'Export PDF…', accelerator: 'CmdOrCtrl+E', click: () => mainWindow.webContents.send('menu:export') },
-        { label: 'Export HTML…', accelerator: 'CmdOrCtrl+Shift+E', click: () => mainWindow.webContents.send('menu:export-html') },
+        { label: `Masquer ${app.name}`, role: 'hide' },
+        { label: 'Masquer les autres', role: 'hideOthers' },
+        { label: 'Tout afficher', role: 'unhide' },
+        { type: 'separator' },
+        { label: `Quitter ${app.name}`, role: 'quit' },
+      ],
+    }] : []),
+    // Le reste de l'interface est en français ; les libellés de rôles sont
+    // forcés eux aussi, sinon ils suivent la langue du système.
+    {
+      label: 'Fichier',
+      submenu: [
+        { label: 'Nouvel onglet', accelerator: 'CmdOrCtrl+N', click: () => mainWindow.webContents.send('menu:new') },
+        { label: 'Ouvrir…', accelerator: 'CmdOrCtrl+O', click: () => mainWindow.webContents.send('menu:open') },
+        { label: 'Ouvrir un dossier…', accelerator: 'CmdOrCtrl+Shift+O', click: () => mainWindow.webContents.send('menu:open-folder') },
+        { type: 'separator' },
+        { label: 'Enregistrer', accelerator: 'CmdOrCtrl+S', click: () => mainWindow.webContents.send('menu:save') },
+        { label: 'Fermer l\'onglet', accelerator: 'CmdOrCtrl+W', click: () => mainWindow.webContents.send('menu:close-tab') },
+        { type: 'separator' },
+        { label: 'Exporter en PDF…', accelerator: 'CmdOrCtrl+E', click: () => mainWindow.webContents.send('menu:export') },
+        { label: 'Exporter en HTML…', accelerator: 'CmdOrCtrl+Shift+E', click: () => mainWindow.webContents.send('menu:export-html') },
         { label: 'Imprimer…', accelerator: 'CmdOrCtrl+P', click: () => mainWindow.webContents.send('menu:print') },
         { type: 'separator' },
-        { label: 'Set as Default Markdown Reader', click: () => mainWindow.webContents.send('menu:set-default') },
+        { label: 'Définir comme lecteur Markdown par défaut', click: () => mainWindow.webContents.send('menu:set-default') },
         { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' },
+        isMac ? { label: 'Fermer la fenêtre', role: 'close' } : { label: 'Quitter', role: 'quit' },
       ],
     },
-    { role: 'editMenu' },
     {
-      label: 'View',
+      label: 'Édition',
       submenu: [
-        { label: 'Toggle Code Pane', accelerator: 'CmdOrCtrl+/', click: () => mainWindow.webContents.send('menu:toggle-editor') },
-        { label: 'Toggle Theme', accelerator: 'CmdOrCtrl+T', click: () => mainWindow.webContents.send('menu:toggle-theme') },
+        { label: 'Annuler', role: 'undo' },
+        { label: 'Rétablir', role: 'redo' },
         { type: 'separator' },
-        { role: 'reload' }, { role: 'toggleDevTools' }, { role: 'togglefullscreen' },
+        { label: 'Couper', role: 'cut' },
+        { label: 'Copier', role: 'copy' },
+        { label: 'Coller', role: 'paste' },
+        ...(isMac ? [{ label: 'Coller et adapter le style', role: 'pasteAndMatchStyle' }] : []),
+        { label: 'Supprimer', role: 'delete' },
+        { label: 'Tout sélectionner', role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'Affichage',
+      submenu: [
+        { label: 'Afficher/masquer le volet code', accelerator: 'CmdOrCtrl+/', click: () => mainWindow.webContents.send('menu:toggle-editor') },
+        { label: 'Basculer le thème', accelerator: 'CmdOrCtrl+T', click: () => mainWindow.webContents.send('menu:toggle-theme') },
+        { type: 'separator' },
+        { label: 'Zoom avant', role: 'zoomIn' },
+        { label: 'Zoom arrière', role: 'zoomOut' },
+        { label: 'Taille réelle', role: 'resetZoom' },
+        { type: 'separator' },
+        { label: 'Recharger', role: 'reload' },
+        { label: 'Outils de développement', role: 'toggleDevTools' },
+        { label: 'Plein écran', role: 'togglefullscreen' },
+      ],
+    },
+    {
+      label: 'Fenêtre',
+      submenu: [
+        { label: 'Réduire', role: 'minimize' },
+        ...(isMac ? [{ label: 'Placer en zoom', role: 'zoom' }, { type: 'separator' }, { label: 'Tout ramener au premier plan', role: 'front' }] : []),
       ],
     },
   ]);

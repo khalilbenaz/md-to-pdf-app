@@ -1,6 +1,6 @@
 {
   "name": "md-to-pdf-app",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Markdown editor with PDF export for macOS and Windows",
   "main": "main.js",
   "scripts": {
