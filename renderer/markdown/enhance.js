@@ -84,6 +84,13 @@ function fillTableOfContents(root, headings) {
       a.href = '#' + h.id;
       a.textContent = h.text;
       li.appendChild(a);
+      // Emplacement vide : seul le PDF sait sur quelle page le titre atterrit.
+      // L'ordre d'écriture des attributs fait partie du contrat — le processus
+      // principal les remplit par substitution de chaîne.
+      const slot = doc.createElement('span');
+      slot.className = 'md-toc-page';
+      slot.dataset.target = h.id;
+      li.appendChild(slot);
       list.appendChild(li);
     }
     nav.appendChild(list);

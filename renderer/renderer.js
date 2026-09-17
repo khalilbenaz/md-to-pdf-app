@@ -133,9 +133,14 @@ function resolveLocalImages() {
 // never snapshot the preview mid-render.
 let mermaidPending = Promise.resolve();
 
+// Le front-matter n'est retiré de l'aperçu que pour l'écran : la page de garde
+// de l'export en a besoin.
+let frontMatter = {};
+
 function render() {
   const src = editor ? editor.getValue() : '';
-  const { body } = stripFrontMatter(src);
+  const { meta, body } = stripFrontMatter(src);
+  frontMatter = meta;
   preview.innerHTML = md.parse(body);
   const { headings } = md.enhance(preview);
   resolveLocalImages();
@@ -438,7 +443,7 @@ window.api.onFileChanged(({ path, content }) => {
 
 // ---------- PDF / HTML export ----------
 const pdfModal = document.getElementById('pdf-modal');
-const PDF_FIELDS = ['pdf-page-size', 'pdf-landscape', 'pdf-margin', 'pdf-header-footer', 'pdf-break-h1', 'pdf-number-headings', 'pdf-header-text'];
+const PDF_FIELDS = ['pdf-page-size', 'pdf-landscape', 'pdf-margin', 'pdf-header-footer', 'pdf-break-h1', 'pdf-number-headings', 'pdf-header-text', 'pdf-cover', 'pdf-watermark'];
 
 // The export options are the same on almost every run; remembering them saves
 // re-checking the same three boxes every time.
@@ -471,6 +476,8 @@ function readPdfOptions() {
     headerText: document.getElementById('pdf-header-text').value,
     breakBeforeH1: document.getElementById('pdf-break-h1').checked,
     numberHeadings: document.getElementById('pdf-number-headings').checked,
+    cover: document.getElementById('pdf-cover').checked,
+    watermark: document.getElementById('pdf-watermark').value,
   };
 }
 
@@ -505,6 +512,28 @@ function paginationCss(options = {}) {
     tr, li { break-inside: avoid; }
     p { orphans: 3; widows: 3; }
     .page-break { break-after: page; height: 0; }
+    /* Le sommaire du document exporté se présente à l'identique, rempli ou non.
+       styles.css bascule le \`li\` de \`list-item\` à \`flex\` avec \`:has()\` au moment
+       même où le numéro arrive : le lien devient alors un élément flexible qui
+       partage la largeur avec la ligne de conduite et le numéro, et une entrée
+       qui tenait sur une ligne en première passe peut passer à deux en seconde.
+       La première passe mesurait donc une pagination que la seconde ne respecte
+       plus — mesuré, 3 destinations sur 5 décalées d'une page sur un document de
+       92 pages. Ces règles-ci sont inconditionnelles : la mise en page finale est
+       déjà celle que la première passe mesure. Le \`:has()\` reste dans styles.css
+       pour l'aperçu à l'écran, où il ne dit rien d'autre que ces règles.
+       L'emplacement du numéro garde sa largeur même vide (min-width), sinon
+       l'inscrire la reprendrait au lien. Pas d'itération des passes : c'est
+       déterministe et borné ainsi, là où itérer peut ne pas converger. */
+    .markdown-body .md-toc li { display: flex; align-items: baseline; gap: 0.4rem; }
+    .markdown-body .md-toc li::after {
+      content: ''; order: 1; flex: 1;
+      border-bottom: 1px dotted var(--border); margin: 0 0.2rem 0.25rem;
+    }
+    .markdown-body .md-toc-page {
+      order: 2; margin-left: auto; min-width: 2.2em; text-align: right;
+      font-variant-numeric: tabular-nums; color: var(--fg-muted);
+    }
     ${options.breakBeforeH1 ? '#preview > h1, .markdown-body > h1 { break-before: page; } #preview > h1:first-child, .markdown-body > h1:first-child { break-before: auto; }' : ''}
     ${options.numberHeadings ? `
     .markdown-body { counter-reset: h1 h2 h3 h4; }
@@ -531,6 +560,25 @@ function documentName() {
   return activeTab?.path ? activeTab.path.split(/[\\/]/).pop().replace(/\.[^.]+$/, '') : 'document';
 }
 
+// Position fixe : Chromium repeint un élément fixe sur chaque page imprimée —
+// mesuré, le flux de chacune des trois pages d'un document témoin grossit.
+function watermarkHtml(text) {
+  const clean = (text || '').trim();
+  return clean ? `<div class="pdf-watermark">${escapeHtml(clean)}</div>` : '';
+}
+
+// Une page de garde sans titre n'est qu'une page blanche : sans `title` en
+// front-matter, on n'en met pas.
+function coverHtml() {
+  const title = frontMatter.title;
+  if (!title) return '';
+  const lines = [`<h1>${escapeHtml(title)}</h1>`];
+  if (frontMatter.subtitle) lines.push(`<p class="pdf-cover-subtitle">${escapeHtml(frontMatter.subtitle)}</p>`);
+  const meta = [frontMatter.author, frontMatter.date].filter(Boolean).map(escapeHtml);
+  if (meta.length) lines.push(`<p class="pdf-cover-meta">${meta.join(' · ')}</p>`);
+  return `<section class="pdf-cover">${lines.join('')}</section>`;
+}
+
 // Everything that leaves the app — PDF, print, standalone HTML — is built from
 // the preview itself rather than re-parsed, so what ships is what was on screen:
 // KaTeX already typeset, mermaid already painted as SVG.
@@ -546,7 +594,7 @@ async function buildPrintableHtml(options) {
     body { display:block; margin: 0; } header, #tabs, #sidebar, #editor, #statusbar, .modal { display:none !important; }
     main { display: block; } #preview { padding: 0; overflow: visible; }
     ${paginationCss(options)}
-  </style></head><body><div id="preview" class="markdown-body">${preview.innerHTML}</div></body></html>`;
+  </style></head><body>${watermarkHtml(options.watermark)}<div id="preview" class="markdown-body">${options.cover ? coverHtml() : ''}${preview.innerHTML}</div></body></html>`;
 }
 
 async function doExportPdf(options) {
@@ -559,17 +607,26 @@ async function doPrint() {
   await window.api.print({ html: await buildPrintableHtml(options), options });
 }
 
-async function doExportHtml() {
+// Même gabarit que buildPrintableHtml() : un utilisateur qui coche la page de
+// garde ou remplit le filigrane doit les retrouver dans l'export HTML aussi.
+// Extraite pour être testable : doExportHtml() ouvre une boîte de dialogue
+// d'enregistrement, ce qu'un test ne peut pas déclencher.
+async function buildExportHtml(options) {
   render();
   await mermaidPending.catch(() => {});
   const bodyHtml = preview.innerHTML;
   const css = await fetch('styles.css').then(r => r.text());
   const katexCss = await loadKatexCss();
   const hljsCss = await fetch(document.getElementById('hljs-theme').href).then(r => r.text()).catch(() => '');
-  const full = `<!DOCTYPE html><html data-theme="light"><head><meta charset="utf-8"><title>${escapeHtml(activeTab?.path?.split(/[\\/]/).pop() || 'Document')}</title>${baseTag()}<style>${css}${katexCss}${hljsCss}
+  return `<!DOCTYPE html><html data-theme="light"><head><meta charset="utf-8"><title>${escapeHtml(activeTab?.path?.split(/[\\/]/).pop() || 'Document')}</title>${baseTag()}<style>${css}${katexCss}${hljsCss}
     body { max-width: 900px; margin: 2rem auto; padding: 0 1rem; font-family: -apple-system, Segoe UI, Roboto, sans-serif; }
-    @media print { ${paginationCss(readPdfOptions())} }
-  </style></head><body><div class="markdown-body">${bodyHtml}</div></body></html>`;
+    @media print { ${paginationCss(options)} }
+  </style></head><body>${watermarkHtml(options.watermark)}<div class="markdown-body">${options.cover ? coverHtml() : ''}${bodyHtml}</div></body></html>`;
+}
+
+async function doExportHtml() {
+  const options = readPdfOptions();
+  const full = await buildExportHtml(options);
   const out = await window.api.exportHtml({ html: full, defaultName: documentName() });
   if (out) fileNameEl.textContent = 'HTML : ' + out.split(/[\\/]/).pop();
 }

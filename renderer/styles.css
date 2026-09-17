@@ -265,3 +265,74 @@ main.no-sidebar.no-editor { grid-template-columns: 1fr; }
   color: var(--fg-muted);
   font-style: italic;
 }
+
+/* ---------- Numéros de page du sommaire ---------- */
+/* Vide à l'écran, rempli par l'export : la ligne de conduite ne s'affiche que
+   lorsqu'il y a un numéro à rejoindre. */
+.markdown-body .md-toc li:has(.md-toc-page:not(:empty)) {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+.markdown-body .md-toc-page:not(:empty) {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-muted);
+}
+.markdown-body .md-toc li:has(.md-toc-page:not(:empty))::after {
+  content: '';
+  order: 1;
+  flex: 1;
+  border-bottom: 1px dotted var(--border);
+  margin: 0 0.2rem 0.25rem;
+}
+.markdown-body .md-toc-page:not(:empty) { order: 2; }
+
+/* ---------- Page de garde ---------- */
+.markdown-body .pdf-cover {
+  break-after: page;
+  min-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+.markdown-body .pdf-cover h1 {
+  font-size: 2.6em;
+  border: 0;
+  margin: 0 0 0.6rem;
+}
+.markdown-body .pdf-cover-subtitle {
+  font-size: 1.3em;
+  color: var(--fg-muted);
+  margin: 0 0 2.5rem;
+}
+.markdown-body .pdf-cover-meta {
+  color: var(--fg-muted);
+  margin: 0;
+}
+
+/* ---------- Filigrane ---------- */
+/* Position fixe à l'impression SEULEMENT : Chromium repeint alors un élément
+   fixe sur chaque page — mesuré, le flux de chacune des trois pages d'un
+   document témoin grossit. Le même `fixed` dans le HTML exporté autonome
+   collerait le filigrane au milieu de la fenêtre pendant tout le défilement :
+   un bandeau permanent au lieu d'une marque de page. Hors impression il est
+   donc absolu, posé une fois en tête du document. */
+.pdf-watermark {
+  position: absolute;
+  top: 45%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 5rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: rgba(180, 30, 30, 0.14);
+  transform: rotate(-30deg);
+  pointer-events: none;
+  z-index: 9999;
+}
+@media print {
+  .pdf-watermark { position: fixed; }
+}

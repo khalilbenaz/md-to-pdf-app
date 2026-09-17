@@ -3,7 +3,7 @@
 // that shipped silently — the KaTeX extension going unregistered because it was
 // chained to a highlight.js import that threw, mermaid vanishing from exports
 // when the code-block class changed, KaTeX fonts not resolving in the PDF.
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
 
@@ -146,6 +146,25 @@ app.whenReady().then(async () => {
   const pdf = await pdfWin.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
   check('printToPDF produces a PDF', pdf.length > 1000 && pdf.subarray(0, 4).toString() === '%PDF');
   check('KaTeX fonts are embedded in the PDF', /KaTeX_/.test(pdf.toString('latin1')));
+
+  // Les signets et les liens internes ne se lisent que dans le PDF produit.
+  const { destinationPages } = require(path.join(root, 'pdf.js'));
+  const withLinks = await pdfWin.webContents.executeJavaScript(`(() => {
+    document.body.innerHTML = '<nav><a href="#un">un</a> <a href="#deux">deux</a></nav>'
+      + '<h1 id="un">Un</h1><p style="height:1200px">a</p>'
+      + '<h1 id="deux">Deux</h1><p style="height:1200px">b</p>';
+    return true;
+  })()`);
+  const linked = await pdfWin.webContents.printToPDF({
+    printBackground: true, pageSize: 'A4',
+    margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 },
+    generateDocumentOutline: true, generateTaggedPDF: true,
+  });
+  const raw = linked.toString('latin1');
+  check('le PDF porte des signets', /\/Outlines/.test(raw), 'withLinks=' + withLinks);
+  check('les liens internes deviennent des annotations', /\/Subtype\s*\/Link/.test(raw));
+  const destPages = destinationPages(linked);
+  check('chaque ancre est résolue à sa page', destPages.un === 1 && destPages.deux === 2, JSON.stringify(destPages));
   await fs.unlink(staged).catch(() => {});
 
   // Les identifiants positionnels (`h-0`, `h-1`) se décalent dès qu'un titre est
@@ -340,6 +359,349 @@ app.whenReady().then(async () => {
     pr.cssAlerte && pr.cssToc, printable);
   check('le CSS exporté stylise les légendes et les notes via .markdown-body',
     pr.cssFigure && pr.cssNotes, printable);
+
+  const tocSlots = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse('[[toc]]\\n\\n# Premier\\n\\n## Deuxième\\n');
+    window.md.enhance(preview);
+    const slots = [...preview.querySelectorAll('.md-toc-page')];
+    return JSON.stringify({
+      nombre: slots.length,
+      cibles: slots.map(s => s.dataset.target),
+      vides: slots.every(s => s.textContent === ''),
+      html: preview.querySelector('.md-toc li').innerHTML,
+    });
+  })()`);
+  const ts = JSON.parse(tocSlots);
+  check('chaque entrée de sommaire porte un emplacement de page', ts.nombre === 2, tocSlots);
+  check('l’emplacement vise l’ancre du titre', ts.cibles[0] === 'premier', tocSlots);
+  check('l’emplacement est vide à l’écran', ts.vides, tocSlots);
+  check('l’emplacement a la forme attendue par le remplissage',
+    /<span class="md-toc-page" data-target="premier"><\/span>/.test(ts.html), ts.html);
+
+  // Le seul test qui prouve la chaîne entière : rendre, lire les pages dans le
+  // PDF, remplir, re-rendre.
+  const { fillTocPages: fill, destinationPages: destPagesOf } = require(path.join(root, 'pdf.js'));
+  const twoPass = await win.webContents.executeJavaScript(`(async () => {
+    // \`buildPrintableHtml()\` appelle \`render()\`, qui reconstruit l'aperçu depuis
+    // l'éditeur : écrire dans \`preview.innerHTML\` avant l'appel ne survivrait pas.
+    window.newTab({ content: '[[toc]]\\n\\n# Un\\n\\n<!-- pagebreak -->\\n\\n# Deux\\n' });
+    return await window.buildPrintableHtml({});
+  })()`);
+  const tmpTwo = path.join(app.getPath('temp'), `mdtopdf-twopass-${Date.now()}.html`);
+  await fs.writeFile(tmpTwo, twoPass, 'utf8');
+  const twoWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  await twoWin.loadFile(tmpTwo);
+  const firstPass = await twoWin.webContents.printToPDF({
+    printBackground: true, pageSize: 'A4',
+    margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 },
+    generateDocumentOutline: true, generateTaggedPDF: true,
+  });
+  const found = destPagesOf(firstPass);
+  const numbered = fill(twoPass, found);
+  check('la première passe situe les deux titres', found.un === 1 && found.deux === 2, JSON.stringify(found));
+  check('la seconde passe inscrit les numéros', /data-target="deux">2<\/span>/.test(numbered));
+  twoWin.close();
+  await fs.unlink(tmpTwo).catch(() => {});
+
+  // Le CSS complet (styles.css inliné dans <style>) contient toujours le
+  // sélecteur littéral `.pdf-cover`, que la page de garde soit produite ou
+  // non : on ne peut donc chercher la sous-chaîne que dans le corps, pas dans
+  // le document entier — même idiome que `corps`/`style` plus haut.
+  const cover = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '---\\ntitle: Rapport annuel\\nsubtitle: Exercice 2026\\nauthor: Khalil\\ndate: 17 septembre 2026\\n---\\n\\n# Contenu\\n' });
+    const avec = await window.buildPrintableHtml({ cover: true });
+    const sans = await window.buildPrintableHtml({ cover: false });
+    const corpsAvec = avec.slice(avec.indexOf('<body>'));
+    const corpsSans = sans.slice(sans.indexOf('<body>'));
+    return JSON.stringify({
+      avec: corpsAvec.includes('pdf-cover'),
+      titre: corpsAvec.includes('Rapport annuel'),
+      soustitre: corpsAvec.includes('Exercice 2026'),
+      auteur: corpsAvec.includes('Khalil'),
+      date: corpsAvec.includes('17 septembre 2026'),
+      sans: corpsSans.includes('pdf-cover'),
+    });
+  })()`);
+  const cv = JSON.parse(cover);
+  check('la page de garde est insérée quand l’option est cochée', cv.avec, cover);
+  check('elle reprend titre, sous-titre, auteur et date',
+    cv.titre && cv.soustitre && cv.auteur && cv.date, cover);
+  check('elle est absente quand l’option ne l’est pas', !cv.sans, cover);
+
+  const coverVide = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '# Sans front-matter\\n' });
+    const html = await window.buildPrintableHtml({ cover: true });
+    const corps = html.slice(html.indexOf('<body>'));
+    return JSON.stringify({ garde: corps.includes('pdf-cover') });
+  })()`);
+  check('pas de page de garde sans titre en front-matter',
+    !JSON.parse(coverVide).garde, coverVide);
+
+  // Le CSS complet (styles.css inliné dans <style>) contient toujours le
+  // sélecteur littéral `.pdf-watermark` : chercher cette sous-chaîne dans le
+  // document entier serait vrai que le filigrane soit posé ou non. On la
+  // cherche donc dans le corps, même idiome que pour la page de garde — sauf
+  // pour la règle CSS elle-même, qui doit bien exister dans la feuille de
+  // style et vaut `position: fixed`.
+  const marque = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '# Document\\n' });
+    const avec = await window.buildPrintableHtml({ watermark: 'BROUILLON' });
+    const sans = await window.buildPrintableHtml({ watermark: '' });
+    const echappeHtml = await window.buildPrintableHtml({ watermark: '<img src=x onerror=alert(1)>' });
+    const corpsAvec = avec.slice(avec.indexOf('<body>'));
+    const corpsSans = sans.slice(sans.indexOf('<body>'));
+    const corpsEchappe = echappeHtml.slice(echappeHtml.indexOf('<body>'));
+    // escapeHtml() n'échappe que &<>"' : le texte « onerror=alert » reste tel
+    // quel de part et d'autre des chevrons échappés, ce n'est pas un signe
+    // d'échec. Ce qui compte est qu'aucune balise <img> non échappée
+    // n'atteigne le document — sinon le gestionnaire onerror s'exécuterait.
+    return JSON.stringify({
+      avec: corpsAvec.includes('pdf-watermark') && corpsAvec.includes('BROUILLON'),
+      sans: corpsSans.includes('pdf-watermark'),
+      fixe: /\\.pdf-watermark[^}]*position:\\s*fixed/.test(avec),
+      echappe: !corpsEchappe.includes('<img') && corpsEchappe.includes('&lt;img'),
+    });
+  })()`);
+  const mq = JSON.parse(marque);
+  check('le filigrane est inséré quand le champ est rempli', mq.avec, marque);
+  check('il est absent quand le champ est vide', !mq.sans, marque);
+  check('il est positionné en fixe, pour se répéter sur chaque page', mq.fixe, marque);
+  check('le texte du filigrane est échappé', mq.echappe, marque);
+
+  // Le `position: fixed` du filigrane vaut pour le papier — Chromium repeint
+  // alors l'élément sur chaque page —, pas pour l'écran : dans le HTML exporté
+  // autonome, ouvert dans un navigateur, il restait plaqué au milieu de la
+  // fenêtre pendant tout le défilement. La règle se lit par le CSSOM, pas par
+  // une expression régulière sur la source : c'est la cascade qui compte.
+  const position = await win.webContents.executeJavaScript(`(() => {
+    const el = document.createElement('div');
+    el.className = 'pdf-watermark';
+    document.body.appendChild(el);
+    const ecran = getComputedStyle(el).position;
+    el.remove();
+    let impression = '';
+    for (const sheet of document.styleSheets) {
+      let regles;
+      try { regles = sheet.cssRules; } catch { continue; }
+      for (const regle of regles) {
+        if (!regle.media || regle.conditionText !== 'print') continue;
+        for (const interne of regle.cssRules || []) {
+          if (interne.selectorText
+            && interne.selectorText.includes('.pdf-watermark')
+            && interne.style.position) impression = interne.style.position;
+        }
+      }
+    }
+    return JSON.stringify({ ecran, impression });
+  })()`);
+  const pos = JSON.parse(position);
+  check('le filigrane n’est pas plaqué à la fenêtre hors impression',
+    pos.ecran === 'absolute', position);
+  check('il redevient fixe à l’impression, pour se répéter sur chaque page',
+    pos.impression === 'fixed', position);
+
+  // doExportHtml() ouvre une boîte de dialogue d'enregistrement : on ne peut
+  // pas l'appeler depuis le test. buildExportHtml() en extrait le gabarit, et
+  // doit honorer les mêmes options que buildPrintableHtml() — page de garde
+  // et filigrane —, sinon un utilisateur qui les coche ne les voit pas dans
+  // le HTML exporté.
+  const exportAvecOptions = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '---\\ntitle: Rapport annuel\\n---\\n\\n# Contenu\\n' });
+    const html = await window.buildExportHtml({ cover: true, watermark: 'BROUILLON' });
+    const corps = html.slice(html.indexOf('<body>'));
+    return JSON.stringify({
+      garde: corps.includes('pdf-cover') && corps.includes('Rapport annuel'),
+      filigrane: corps.includes('pdf-watermark') && corps.includes('BROUILLON'),
+    });
+  })()`);
+  const eh = JSON.parse(exportAvecOptions);
+  check('l’export HTML inclut la page de garde quand l’option est cochée', eh.garde, exportAvecOptions);
+  check('l’export HTML inclut le filigrane quand le champ est rempli', eh.filigrane, exportAvecOptions);
+
+
+  // ── I2 / I3 : les deux handlers du processus principal ─────────────────────
+  // main.js n'exporte rien : ses handlers ne sont joignables que par IPC depuis
+  // un renderer, et `webContents.print()` ouvrirait la boîte système. On
+  // intercepte donc `ipcMain.handle` avant de charger le module, ce qui donne
+  // prise sur les fonctions elles-mêmes. Quelques canaux sont déjà stubbés en
+  // tête de ce fichier : le second enregistrement lève, sans conséquence
+  // puisque c'est la référence capturée qu'on appelle.
+  const handlers = {};
+  const vraiHandle = ipcMain.handle.bind(ipcMain);
+  ipcMain.handle = (channel, fn) => { handlers[channel] = fn; try { vraiHandle(channel, fn); } catch {} };
+  require(path.join(root, 'main.js'));
+  ipcMain.handle = vraiHandle;
+  await new Promise((r) => setTimeout(r, 1500));
+  check('les handlers d’export et d’impression sont joignables',
+    typeof handlers['file:print'] === 'function' && typeof handlers['file:export-pdf'] === 'function',
+    Object.keys(handlers).join(', '));
+
+  const tempDir = app.getPath('temp');
+  const htmlTemporaires = async () => (await fs.readdir(tempDir)).filter((f) => /^mdtopdf-\d+-\w+\.html$/.test(f));
+
+  // --- I2 : un loadFile en échec ne doit rien laisser derrière lui ---
+  // Le relecteur a déclenché deux ERR_FAILED sur `loadFile` pendant ses essais :
+  // sans try/finally, la fenêtre cachée reste vivante jusqu'à la fermeture de
+  // l'application et le fichier temporaire — le document entier, images en data
+  // URI comprises — reste sur le disque, à chaque tentative.
+  const htmlAvantFuite = await htmlTemporaires();
+  const fenetresAvant = BrowserWindow.getAllWindows().length;
+  const vraiLoadFile = BrowserWindow.prototype.loadFile;
+  BrowserWindow.prototype.loadFile = () => Promise.reject(new Error('ERR_FAILED (-2) loading'));
+  let aLeve = false;
+  try {
+    await handlers['file:print'](null, { html: '<!DOCTYPE html><html><body>x</body></html>', options: {} });
+  } catch { aLeve = true; }
+  BrowserWindow.prototype.loadFile = vraiLoadFile;
+  await new Promise((r) => setTimeout(r, 500));
+  const htmlApresFuite = await htmlTemporaires();
+  const restes = htmlApresFuite.filter((f) => !htmlAvantFuite.includes(f));
+  check('un loadFile en échec fait bien remonter l’erreur de l’impression', aLeve);
+  check('I2 — l’impression ne laisse pas de fichier temporaire derrière elle',
+    restes.length === 0, JSON.stringify(restes));
+  check('I2 — l’impression ne laisse pas de fenêtre cachée vivante',
+    BrowserWindow.getAllWindows().length <= fenetresAvant,
+    fenetresAvant + ' → ' + BrowserWindow.getAllWindows().length);
+
+  // --- I2 : dans l'export, `close()` ne doit pas emporter le ménage ---
+  // Sur une fenêtre déjà détruite, `close()` lève ; il précédait les
+  // suppressions, qui n'avaient alors pas lieu.
+  const vraiSaveDialog = dialog.showSaveDialog;
+  const vraiShowItem = shell.showItemInFolder;
+  const vraiClose = BrowserWindow.prototype.close;
+  const ciblePdf = path.join(tempDir, `mdtopdf-test-export-${Date.now()}.pdf`);
+  dialog.showSaveDialog = async () => ({ canceled: false, filePath: ciblePdf });
+  shell.showItemInFolder = () => {};
+  BrowserWindow.prototype.close = function () { throw new Error('Object has been destroyed'); };
+  const htmlAvantExport = await htmlTemporaires();
+  const fenetresAvantExport = BrowserWindow.getAllWindows();
+  try {
+    await handlers['file:export-pdf'](null, {
+      html: '<!DOCTYPE html><html><body><h1>Un</h1></body></html>', defaultName: 'test', options: {},
+    });
+  } catch {}
+  BrowserWindow.prototype.close = vraiClose;
+  dialog.showSaveDialog = vraiSaveDialog;
+  shell.showItemInFolder = vraiShowItem;
+  for (const w of BrowserWindow.getAllWindows()) if (!fenetresAvantExport.includes(w)) w.destroy();
+  await new Promise((r) => setTimeout(r, 300));
+  const restesExport = (await htmlTemporaires()).filter((f) => !htmlAvantExport.includes(f));
+  check('I2 — l’export supprime ses fichiers temporaires même si close() lève',
+    restesExport.length === 0, JSON.stringify(restesExport));
+  await fs.unlink(ciblePdf).catch(() => {});
+
+  // --- I3 : l'impression part sur un sommaire paginé, comme l'export ---
+  // Cmd/Ctrl+P puis « Enregistrer au format PDF » dans la boîte système est un
+  // geste courant sous macOS : il donnait un sommaire aux emplacements vides
+  // alors que le bouton « Exporter » d'à côté, sur le même document, les
+  // remplit. On remplace `print()` par un relevé du document réellement chargé
+  // au moment de l'impression — la boîte système n'a pas sa place dans un test.
+  const wcProto = Object.getPrototypeOf(win.webContents);
+  const vraiPrint = wcProto.print;
+  let imprime = null;
+  wcProto.print = function (_opts, cb) {
+    this.executeJavaScript(
+      'JSON.stringify([...document.querySelectorAll(".md-toc-page")].map(s => s.textContent))'
+    ).then((r) => { imprime = r; cb(true, ''); }, (e) => { imprime = 'erreur: ' + e.message; cb(false, ''); });
+  };
+  const htmlAImprimer = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '[[toc]]\\n\\n# Un\\n\\n<!-- pagebreak -->\\n\\n# Deux\\n' });
+    return await window.buildPrintableHtml({});
+  })()`);
+  await handlers['file:print'](null, { html: htmlAImprimer, options: {} });
+  wcProto.print = vraiPrint;
+  check('I3 — l’impression part sur un sommaire paginé, comme l’export',
+    typeof vraiPrint === 'function' && imprime !== null
+      && JSON.parse(imprime.startsWith('[') ? imprime : '[]').join(',') === '1,2',
+    String(imprime));
+
+
+  // ── I4 : la chaîne complète sur un VRAI PDF long, accentué et paginé ───────
+  // Les PDF écrits à la main des tests unitaires reconduisent les hypothèses
+  // fausses : arbre de pages plat et noms de destination en `#c3`. Aucun ne
+  // pouvait voir les trois constats Critical. Ce test rend un document réel de
+  // plus de trente pages — bien au-delà des 8 pages en deçà desquelles Skia
+  // aplatit son arbre (C1) —, comportant un titre accentué (C2), et le rend une
+  // seconde fois une fois les numéros inscrits pour vérifier que le remplissage
+  // ne repagine rien (C3).
+  const { destinationPages: destLong, fillTocPages: fillLong, pdfOptions: optLong } = require(path.join(root, 'pdf.js'));
+  const MESURE_TOC = `(() => {
+    const toc = document.querySelector('.md-toc');
+    const lis = [...document.querySelectorAll('.md-toc li')];
+    return JSON.stringify({
+      tocH: Math.round(toc.getBoundingClientRect().height),
+      liH: lis.map(l => Math.round(l.getBoundingClientRect().height)),
+      disp: lis.length ? getComputedStyle(lis[0]).display : '',
+      num: lis.length ? lis[0].querySelector('.md-toc-page').textContent : '',
+    });
+  })()`;
+  const longSrc = await win.webContents.executeJavaScript(`(async () => {
+    // Des titres de longueurs finement croissantes : une entrée qui tenait
+    // tout juste sur une ligne doit pouvoir basculer à deux si la mise en page
+    // du sommaire change entre les deux passes. Le corps de chaque chapitre
+    // s'écoule — pas de saut de page forcé —, sans quoi un décalage en tête de
+    // document n'atteindrait jamais les chapitres suivants.
+    const titres = [];
+    for (let i = 1; i <= 60; i++) {
+      titres.push('Chapitre ' + i + ' analyse de la mise en page ' + 'i '.repeat(i));
+    }
+    titres.splice(4, 0, 'Périmètre budgétaire et coûts détaillés');
+    const corps = '\\n' + ('Texte de remplissage du chapitre qui occupe la page. '.repeat(30)) + '\\n';
+    window.newTab({ content: '[[toc]]\\n\\n' + titres.map(t => '# ' + t + '\\n' + corps).join('\\n') });
+    const html = await window.buildPrintableHtml({});
+    const preview = document.getElementById('preview');
+    return JSON.stringify({
+      html,
+      cibles: [...preview.querySelectorAll('.md-toc-page')].map(s => s.dataset.target),
+    });
+  })()`);
+  const lg = JSON.parse(longSrc);
+  const accentue = lg.cibles.find(t => /[éèêîôûàç]/.test(t));
+
+  async function rendreLong(html, tag) {
+    const file = path.join(app.getPath('temp'), `mdtopdf-long-${tag}-${Date.now()}.html`);
+    await fs.writeFile(file, html, 'utf8');
+    const w = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+    await w.loadFile(file);
+    const geo = JSON.parse(await w.webContents.executeJavaScript(MESURE_TOC));
+    const buf = await w.webContents.printToPDF(optLong({}));
+    w.close();
+    await fs.unlink(file).catch(() => {});
+    return { geo, dest: destLong(buf) };
+  }
+
+  const avant = await rendreLong(lg.html, 'a');
+  const apres = await rendreLong(fillLong(lg.html, avant.dest), 'b');
+
+  const pagesLong = Math.max(0, ...Object.values(avant.dest));
+  const manquantes = lg.cibles.filter(t => !(avant.dest[t] > 0));
+  check('le document témoin dépasse le seuil de l’arbre de pages plat',
+    lg.cibles.length >= 30 && pagesLong > 8,
+    'entrées=' + lg.cibles.length + ' pages=' + pagesLong);
+  check('C1 — toutes les ancres sont résolues, pas seulement les premières',
+    manquantes.length === 0,
+    manquantes.length + '/' + lg.cibles.length + ' non résolues, page max=' + pagesLong
+      + ', ex. ' + JSON.stringify(manquantes.slice(0, 3)));
+  check('C2 — le titre accentué est résolu',
+    !!accentue && avant.dest[accentue] > 0,
+    'cible=' + accentue + ' page=' + avant.dest[accentue]);
+  // La comparaison des mises en page est la garde déterministe : le sommaire
+  // du document imprimable doit se présenter à l'identique, rempli ou non, pour
+  // que la première passe mesure déjà la pagination finale.
+  check('C3 — le sommaire imprimable a la même mise en page, rempli ou non',
+    avant.geo.disp === apres.geo.disp
+      && avant.geo.tocH === apres.geo.tocH
+      && JSON.stringify(avant.geo.liH) === JSON.stringify(apres.geo.liH),
+    'display ' + avant.geo.disp + '→' + apres.geo.disp
+      + ', hauteur ' + avant.geo.tocH + '→' + apres.geo.tocH
+      + ', numéro ' + JSON.stringify(avant.geo.num) + '→' + JSON.stringify(apres.geo.num));
+  const decalees = Object.keys(avant.dest).filter(k => avant.dest[k] !== apres.dest[k]);
+  check('C3 — le remplissage ne repagine pas ce que la première passe a mesuré',
+    decalees.length === 0
+      && Object.keys(avant.dest).length === Object.keys(apres.dest).length,
+    decalees.length + ' destinations déplacées, ex. '
+      + JSON.stringify(decalees.slice(0, 3).map(k => k + ' : ' + avant.dest[k] + '→' + apres.dest[k])));
 
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
