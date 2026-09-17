@@ -162,6 +162,31 @@ app.whenReady().then(async () => {
   check('les titres homonymes sont dédoublonnés', s.ids[1] === 'notes' && s.ids[2] === 'notes-2', slugs);
   check('enhance() retourne les titres avec leur niveau', s.returned[0] === 'mise-en-page:1', slugs);
 
+  const toc = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse('[[toc]]\\n\\n# Un\\n\\n## Deux\\n\\n#### Quatre\\n');
+    window.md.enhance(preview);
+    const nav = preview.querySelector('nav.md-toc');
+    return JSON.stringify({
+      present: !!nav,
+      titre: nav ? nav.querySelector('.md-toc-title')?.textContent : null,
+      liens: nav ? [...nav.querySelectorAll('a')].map(a => a.getAttribute('href')) : [],
+    });
+  })()`);
+  const t = JSON.parse(toc);
+  check('[[toc]] devient un sommaire', t.present, toc);
+  check('le sommaire porte un titre français', t.titre === 'Sommaire', toc);
+  check('le sommaire s’arrête au niveau 3', t.liens.length === 2 && t.liens[0] === '#un', toc);
+
+  const tocVide = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse('[[toc]]\\n\\nTexte sans titre.\\n');
+    window.md.enhance(preview);
+    return JSON.stringify({ nav: !!preview.querySelector('nav.md-toc'), reste: preview.textContent.includes('[[toc]]') });
+  })()`);
+  const tv = JSON.parse(tocVide);
+  check('[[toc]] sans titre ne laisse pas d’encadré vide', !tv.nav && !tv.reste, tocVide);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   app.exit(failed.length ? 1 : 0);
