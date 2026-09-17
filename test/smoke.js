@@ -206,6 +206,36 @@ app.whenReady().then(async () => {
   check('une image sans texte alternatif n’est pas numérotée', f.legendes.length === 2 && f.figures === 3, figures);
   check('une image cliquable reste un lien', f.lienIntact && f.lienPasEnFigure, figures);
 
+  const pagination = await win.webContents.executeJavaScript(
+    'JSON.stringify(window.paginationCss({}))'
+  );
+  const css = JSON.parse(pagination);
+  check('la pagination protège les admonitions', css.includes('.markdown-alert'), css.slice(0, 200));
+  check('la pagination protège les sommaires et les notes',
+    css.includes('.md-toc') && css.includes('.footnotes'), css.slice(0, 200));
+
+  // Les exports reprennent le DOM de l'aperçu : ce test échouerait si une passe
+  // DOM n'était appliquée que pour l'écran.
+  const exporte = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse(
+      '[[toc]]\\n\\n# Titre\\n\\n> [!WARNING]\\n> danger\\n\\n![Le schéma](a.png)\\n\\nTexte[^1].\\n\\n[^1]: la note\\n'
+    );
+    window.md.enhance(preview);
+    const html = preview.innerHTML;
+    return JSON.stringify({
+      toc: html.includes('md-toc'),
+      alerte: html.includes('markdown-alert-warning'),
+      figure: html.includes('Figure 1'),
+      note: html.includes('footnotes'),
+    });
+  })()`);
+  const ex = JSON.parse(exporte);
+  check('le sommaire survit dans le HTML imprimable', ex.toc, exporte);
+  check('les admonitions survivent dans le HTML imprimable', ex.alerte, exporte);
+  check('les légendes survivent dans le HTML imprimable', ex.figure, exporte);
+  check('les notes survivent dans le HTML imprimable', ex.note, exporte);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   app.exit(failed.length ? 1 : 0);

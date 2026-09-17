@@ -500,6 +500,9 @@ function paginationCss(options = {}) {
   return `
     h1, h2, h3, h4, h5, h6 { break-after: avoid; break-inside: avoid; }
     table, pre, blockquote, figure, img, .mermaid, .katex-display { break-inside: avoid; }
+    .markdown-alert, .md-toc { break-inside: avoid; }
+    .footnotes { break-before: auto; }
+    .footnotes h2 { break-after: avoid; }
     tr, li { break-inside: avoid; }
     p { orphans: 3; widows: 3; }
     .page-break { break-after: page; height: 0; }
