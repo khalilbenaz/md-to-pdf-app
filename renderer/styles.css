@@ -249,3 +249,19 @@ main.no-sidebar.no-editor { grid-template-columns: 1fr; }
 #preview .md-toc-h3 { padding-left: 2.2rem; }
 #preview .md-toc a { text-decoration: none; }
 #preview .md-toc a:hover { text-decoration: underline; }
+
+/* ---------- Figures ---------- */
+#preview figure {
+  margin: 1.5rem 0;
+  text-align: center;
+}
+#preview figure img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+#preview figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.88em;
+  color: var(--fg-muted);
+  font-style: italic;
+}

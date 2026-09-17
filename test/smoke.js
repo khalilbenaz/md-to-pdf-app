@@ -187,6 +187,25 @@ app.whenReady().then(async () => {
   const tv = JSON.parse(tocVide);
   check('[[toc]] sans titre ne laisse pas d’encadré vide', !tv.nav && !tv.reste, tocVide);
 
+  const figures = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse(
+      '![Le schéma](a.png)\\n\\n![](b.png)\\n\\n![La copie](c.png)\\n\\n[![Lien](d.png)](https://exemple.fr)\\n'
+    );
+    window.md.enhance(preview);
+    return JSON.stringify({
+      legendes: [...preview.querySelectorAll('figcaption')].map(f => f.textContent),
+      figures: preview.querySelectorAll('figure').length,
+      lienIntact: !!preview.querySelector('a > img'),
+      lienPasEnFigure: !preview.querySelector('figure > a'),
+    });
+  })()`);
+  const f = JSON.parse(figures);
+  check('les figures sont numérotées dans l’ordre',
+    f.legendes[0] === 'Figure 1 — Le schéma' && f.legendes[1] === 'Figure 2 — La copie', figures);
+  check('une image sans texte alternatif n’est pas numérotée', f.legendes.length === 2 && f.figures === 3, figures);
+  check('une image cliquable reste un lien', f.lienIntact && f.lienPasEnFigure, figures);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   app.exit(failed.length ? 1 : 0);

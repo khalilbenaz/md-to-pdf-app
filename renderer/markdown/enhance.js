@@ -8,6 +8,7 @@ import { LABELS } from './labels.js';
 export function enhance(root) {
   const headings = collectHeadings(root);
   fillTableOfContents(root, headings);
+  numberFigures(root);
   return { headings };
 }
 
@@ -62,6 +63,35 @@ function fillTableOfContents(root, headings) {
     }
     nav.appendChild(list);
     p.replaceWith(nav);
+  }
+}
+
+// Aucune syntaxe nouvelle : un paragraphe dont l'unique contenu est une image
+// devient une figure. Une image sans texte alternatif ne reçoit ni légende ni
+// numéro — une image décorative ne doit pas consommer un numéro de figure —
+// mais reste dans un <figure> pour bénéficier des règles de saut de page.
+function numberFigures(root) {
+  const doc = root.ownerDocument;
+  let n = 0;
+  for (const p of [...root.querySelectorAll('p')]) {
+    const content = [...p.childNodes].filter(
+      node => node.nodeType !== node.TEXT_NODE || node.textContent.trim()
+    );
+    if (content.length !== 1) continue;
+    const img = content[0];
+    if (img.tagName !== 'IMG') continue;
+
+    const figure = doc.createElement('figure');
+    p.replaceWith(figure);
+    figure.appendChild(img);
+
+    const alt = (img.getAttribute('alt') || '').trim();
+    if (!alt) continue;
+
+    n += 1;
+    const caption = doc.createElement('figcaption');
+    caption.textContent = `${LABELS.figure} ${n} — ${alt}`;
+    figure.appendChild(caption);
   }
 }
 
