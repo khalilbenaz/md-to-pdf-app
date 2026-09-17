@@ -85,23 +85,22 @@ jobs:
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
-      # The installers are ~130 MB each; uploading them in parallel through the
-      # action times out. The CLI uploads them one at a time and retries.
       - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: artifacts/**/*.dmg
+          fail_on_unmatched_files: false
+          generate_release_notes: false
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
-            || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes ""
-          find artifacts -type f -print0 | while IFS= read -r -d '' f; do
-            echo "Uploading $f"
-            for attempt in 1 2 3; do
-              if timeout 600 gh release upload "$TAG" "$f" --repo "$GITHUB_REPOSITORY" --clobber; then
-                break
-              fi
-              echo "Attempt $attempt failed for $f"
-              [ "$attempt" = 3 ] && exit 1
-              sleep 15
-            done
-          done
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows installer
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: artifacts/**/*.exe
+          fail_on_unmatched_files: false
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
