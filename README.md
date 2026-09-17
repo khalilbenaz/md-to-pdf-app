@@ -46,7 +46,7 @@ Construit avec [Electron](https://www.electronjs.org/) + [CodeMirror 6](https://
 - **Notes de bas de page** (`Texte[^1]` + `[^1]: la note`), rejetées en fin de document
 - **Encadrés** `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]` — syntaxe GitHub et Obsidian, `:::note` également accepté
 - **Sommaire** inséré dans le corps du document avec `[[toc]]` (titres 1 à 3)
-- **Figures numérotées** : une image seule sur sa ligne devient une figure légendée par son texte alternatif
+- **Figures numérotées** : une image seule sur sa ligne devient une figure légendée par son texte alternatif, mais une image sans texte alternatif devient une simple figure sans légende ni numéro, une image décorative ne consommant pas de numéro de figure
 - **Ancres stables** : les titres reçoivent un identifiant dérivé de leur texte, pas de leur position
 - **Thème clair / sombre** (`Cmd/Ctrl+T`), appliqué à l'éditeur, l'aperçu et les diagrammes
 - **Images locales** : les chemins relatifs sont résolus par rapport au fichier `.md`, pas à l'application
@@ -258,6 +258,7 @@ md-to-pdf-app/
 │   ├── icon.html               # Source de l'icône (SVG)
 │   ├── make-icon.js            # Rend l'icône en PNG 1024 via Electron
 │   ├── icon.png / icon.icns    # Icônes consommées par electron-builder
+├── test/markdown.test.js       # Tests unitaires du moteur, sans Electron (npm test)
 ├── test/smoke.js               # Test de fumée end-to-end (npm test)
 ├── .github/workflows/ci.yml        # CI : test de fumée macOS / Linux / Windows
 ├── .github/workflows/release.yml   # CI : build & publication des installateurs
@@ -285,7 +286,7 @@ md-to-pdf-app/
 | Script | Description |
 |---|---|
 | `npm start` | Bundle le renderer + lance l'app en dev |
-| `npm run bundle` | Bundle `editor-src.js` et `vendor-src.js` → `*-bundle.js` (esbuild, minifié) |
+| `npm run bundle` | Bundle `renderer/editor-src.js` et `renderer/markdown-src.js` vers `editor-bundle.js` et `markdown-bundle.js` (esbuild, minifié) |
 | `npm test` | Tests unitaires du moteur (`node --test`, sans Electron) puis test de fumée end-to-end |
 | `npm run build` | Build des installateurs pour la plateforme courante |
 | `npm run build:mac` | Build `.dmg` (arm64 + x64) |
