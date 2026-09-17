@@ -624,6 +624,20 @@ function fibonacci(n) {
 
 $$\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}$$
 
+## Notes et encadrés
+
+Une affirmation qui mérite une source[^1].
+
+[^1]: La source en question.
+
+> [!TIP]
+> \`> [!NOTE]\`, \`[!TIP]\`, \`[!IMPORTANT]\`, \`[!WARNING]\` et \`[!CAUTION]\`
+> produisent un encadré. La syntaxe \`:::note\` marche aussi.
+
+> [!WARNING]
+> Insère \`[[toc]]\` où tu veux un sommaire, et une image seule sur sa
+> ligne devient une figure numérotée.
+
 ## Diagramme
 
 \`\`\`mermaid
