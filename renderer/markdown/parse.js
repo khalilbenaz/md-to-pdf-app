@@ -13,7 +13,10 @@ import { Marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 import markedKatex from 'marked-katex-extension';
 import markedFootnote from 'marked-footnote';
+import markedAlert from 'marked-alert';
+import { createDirectives } from 'marked-directive';
 import { LABELS } from './labels.js';
+import { ICONS } from './icons.js';
 import hljs from 'highlight.js/lib/common';
 
 import dockerfile from 'highlight.js/lib/languages/dockerfile';
@@ -37,6 +40,24 @@ function preprocess(source) {
   return source.replace(/<!--\s*pagebreak\s*-->/gi, '<div class="page-break"></div>');
 }
 
+const ALERT_TYPES = Object.keys(LABELS.alerts);
+
+// `> [!NOTE]` est la syntaxe principale : native sur GitHub et Obsidian, et
+// elle dégrade en simple citation partout ailleurs. `:::note` est accepté en
+// second pour les documents venus d'un Docusaurus, et rend le même HTML.
+const directiveAlerts = {
+  level: 'container',
+  marker: ':::',
+  renderer(token) {
+    const name = token.meta.name;
+    if (!ALERT_TYPES.includes(name)) return false;
+    return `<div class="markdown-alert markdown-alert-${name}">`
+      + `<p class="markdown-alert-title">${ICONS[name]}${LABELS.alerts[name]}</p>`
+      + this.parser.parse(token.tokens)
+      + '</div>';
+  },
+};
+
 export function createParser() {
   const marked = new Marked();
 
@@ -58,6 +79,16 @@ export function createParser() {
     footnoteDivider: true,
     backRefLabel: LABELS.backref,
   }));
+
+  marked.use(markedAlert({
+    variants: ALERT_TYPES.map(type => ({
+      type,
+      icon: ICONS[type],
+      title: LABELS.alerts[type],
+    })),
+  }));
+
+  marked.use(createDirectives([directiveAlerts]));
 
   marked.use({ gfm: true, breaks: false });
 

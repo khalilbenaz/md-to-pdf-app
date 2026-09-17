@@ -189,3 +189,36 @@ main.no-sidebar.no-editor { grid-template-columns: 1fr; }
   border-top: 1px solid var(--border);
   margin-top: 2.5rem;
 }
+
+/* ---------- Admonitions ---------- */
+#preview .markdown-alert {
+  border-left: 4px solid var(--alert-color);
+  background: color-mix(in srgb, var(--alert-color) 8%, transparent);
+  padding: 0.8rem 1rem;
+  margin: 1.2rem 0;
+  border-radius: 0 6px 6px 0;
+  --alert-color: var(--accent);
+}
+#preview .markdown-alert > :first-child { margin-top: 0; }
+#preview .markdown-alert > :last-child { margin-bottom: 0; }
+#preview .markdown-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  font-weight: 600;
+  color: var(--alert-color);
+  margin-bottom: 0.4rem;
+}
+#preview .markdown-alert-icon { flex: none; }
+
+#preview .markdown-alert-note      { --alert-color: #2563eb; }
+#preview .markdown-alert-tip       { --alert-color: #15803d; }
+#preview .markdown-alert-important { --alert-color: #7c3aed; }
+#preview .markdown-alert-warning   { --alert-color: #b45309; }
+#preview .markdown-alert-caution   { --alert-color: #b91c1c; }
+
+:root[data-theme="dark"] #preview .markdown-alert-note      { --alert-color: #60a5fa; }
+:root[data-theme="dark"] #preview .markdown-alert-tip       { --alert-color: #4ade80; }
+:root[data-theme="dark"] #preview .markdown-alert-important { --alert-color: #c084fc; }
+:root[data-theme="dark"] #preview .markdown-alert-warning   { --alert-color: #fbbf24; }
+:root[data-theme="dark"] #preview .markdown-alert-caution   { --alert-color: #f87171; }
