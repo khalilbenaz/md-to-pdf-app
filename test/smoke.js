@@ -487,6 +487,93 @@ app.whenReady().then(async () => {
   check('l’export HTML inclut la page de garde quand l’option est cochée', eh.garde, exportAvecOptions);
   check('l’export HTML inclut le filigrane quand le champ est rempli', eh.filigrane, exportAvecOptions);
 
+
+  // ── I4 : la chaîne complète sur un VRAI PDF long, accentué et paginé ───────
+  // Les PDF écrits à la main des tests unitaires reconduisent les hypothèses
+  // fausses : arbre de pages plat et noms de destination en `#c3`. Aucun ne
+  // pouvait voir les trois constats Critical. Ce test rend un document réel de
+  // plus de trente pages — bien au-delà des 8 pages en deçà desquelles Skia
+  // aplatit son arbre (C1) —, comportant un titre accentué (C2), et le rend une
+  // seconde fois une fois les numéros inscrits pour vérifier que le remplissage
+  // ne repagine rien (C3).
+  const { destinationPages: destLong, fillTocPages: fillLong, pdfOptions: optLong } = require(path.join(root, 'pdf.js'));
+  const MESURE_TOC = `(() => {
+    const toc = document.querySelector('.md-toc');
+    const lis = [...document.querySelectorAll('.md-toc li')];
+    return JSON.stringify({
+      tocH: Math.round(toc.getBoundingClientRect().height),
+      liH: lis.map(l => Math.round(l.getBoundingClientRect().height)),
+      disp: lis.length ? getComputedStyle(lis[0]).display : '',
+      num: lis.length ? lis[0].querySelector('.md-toc-page').textContent : '',
+    });
+  })()`;
+  const longSrc = await win.webContents.executeJavaScript(`(async () => {
+    // Des titres de longueurs finement croissantes : une entrée qui tenait
+    // tout juste sur une ligne doit pouvoir basculer à deux si la mise en page
+    // du sommaire change entre les deux passes. Le corps de chaque chapitre
+    // s'écoule — pas de saut de page forcé —, sans quoi un décalage en tête de
+    // document n'atteindrait jamais les chapitres suivants.
+    const titres = [];
+    for (let i = 1; i <= 60; i++) {
+      titres.push('Chapitre ' + i + ' analyse de la mise en page ' + 'i '.repeat(i));
+    }
+    titres.splice(4, 0, 'Périmètre budgétaire et coûts détaillés');
+    const corps = '\\n' + ('Texte de remplissage du chapitre qui occupe la page. '.repeat(30)) + '\\n';
+    window.newTab({ content: '[[toc]]\\n\\n' + titres.map(t => '# ' + t + '\\n' + corps).join('\\n') });
+    const html = await window.buildPrintableHtml({});
+    const preview = document.getElementById('preview');
+    return JSON.stringify({
+      html,
+      cibles: [...preview.querySelectorAll('.md-toc-page')].map(s => s.dataset.target),
+    });
+  })()`);
+  const lg = JSON.parse(longSrc);
+  const accentue = lg.cibles.find(t => /[éèêîôûàç]/.test(t));
+
+  async function rendreLong(html, tag) {
+    const file = path.join(app.getPath('temp'), `mdtopdf-long-${tag}-${Date.now()}.html`);
+    await fs.writeFile(file, html, 'utf8');
+    const w = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+    await w.loadFile(file);
+    const geo = JSON.parse(await w.webContents.executeJavaScript(MESURE_TOC));
+    const buf = await w.webContents.printToPDF(optLong({}));
+    w.close();
+    await fs.unlink(file).catch(() => {});
+    return { geo, dest: destLong(buf) };
+  }
+
+  const avant = await rendreLong(lg.html, 'a');
+  const apres = await rendreLong(fillLong(lg.html, avant.dest), 'b');
+
+  const pagesLong = Math.max(0, ...Object.values(avant.dest));
+  const manquantes = lg.cibles.filter(t => !(avant.dest[t] > 0));
+  check('le document témoin dépasse le seuil de l’arbre de pages plat',
+    lg.cibles.length >= 30 && pagesLong > 8,
+    'entrées=' + lg.cibles.length + ' pages=' + pagesLong);
+  check('C1 — toutes les ancres sont résolues, pas seulement les premières',
+    manquantes.length === 0,
+    manquantes.length + '/' + lg.cibles.length + ' non résolues, page max=' + pagesLong
+      + ', ex. ' + JSON.stringify(manquantes.slice(0, 3)));
+  check('C2 — le titre accentué est résolu',
+    !!accentue && avant.dest[accentue] > 0,
+    'cible=' + accentue + ' page=' + avant.dest[accentue]);
+  // La comparaison des mises en page est la garde déterministe : le sommaire
+  // du document imprimable doit se présenter à l'identique, rempli ou non, pour
+  // que la première passe mesure déjà la pagination finale.
+  check('C3 — le sommaire imprimable a la même mise en page, rempli ou non',
+    avant.geo.disp === apres.geo.disp
+      && avant.geo.tocH === apres.geo.tocH
+      && JSON.stringify(avant.geo.liH) === JSON.stringify(apres.geo.liH),
+    'display ' + avant.geo.disp + '→' + apres.geo.disp
+      + ', hauteur ' + avant.geo.tocH + '→' + apres.geo.tocH
+      + ', numéro ' + JSON.stringify(avant.geo.num) + '→' + JSON.stringify(apres.geo.num));
+  const decalees = Object.keys(avant.dest).filter(k => avant.dest[k] !== apres.dest[k]);
+  check('C3 — le remplissage ne repagine pas ce que la première passe a mesuré',
+    decalees.length === 0
+      && Object.keys(avant.dest).length === Object.keys(apres.dest).length,
+    decalees.length + ' destinations déplacées, ex. '
+      + JSON.stringify(decalees.slice(0, 3).map(k => k + ' : ' + avant.dest[k] + '→' + apres.dest[k])));
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   app.exit(failed.length ? 1 : 0);

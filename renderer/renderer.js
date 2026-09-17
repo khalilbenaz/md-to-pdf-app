@@ -512,6 +512,28 @@ function paginationCss(options = {}) {
     tr, li { break-inside: avoid; }
     p { orphans: 3; widows: 3; }
     .page-break { break-after: page; height: 0; }
+    /* Le sommaire du document exporté se présente à l'identique, rempli ou non.
+       styles.css bascule le \`li\` de \`list-item\` à \`flex\` avec \`:has()\` au moment
+       même où le numéro arrive : le lien devient alors un élément flexible qui
+       partage la largeur avec la ligne de conduite et le numéro, et une entrée
+       qui tenait sur une ligne en première passe peut passer à deux en seconde.
+       La première passe mesurait donc une pagination que la seconde ne respecte
+       plus — mesuré, 3 destinations sur 5 décalées d'une page sur un document de
+       92 pages. Ces règles-ci sont inconditionnelles : la mise en page finale est
+       déjà celle que la première passe mesure. Le \`:has()\` reste dans styles.css
+       pour l'aperçu à l'écran, où il ne dit rien d'autre que ces règles.
+       L'emplacement du numéro garde sa largeur même vide (min-width), sinon
+       l'inscrire la reprendrait au lien. Pas d'itération des passes : c'est
+       déterministe et borné ainsi, là où itérer peut ne pas converger. */
+    .markdown-body .md-toc li { display: flex; align-items: baseline; gap: 0.4rem; }
+    .markdown-body .md-toc li::after {
+      content: ''; order: 1; flex: 1;
+      border-bottom: 1px dotted var(--border); margin: 0 0.2rem 0.25rem;
+    }
+    .markdown-body .md-toc-page {
+      order: 2; margin-left: auto; min-width: 2.2em; text-align: right;
+      font-variant-numeric: tabular-nums; color: var(--fg-muted);
+    }
     ${options.breakBeforeH1 ? '#preview > h1, .markdown-body > h1 { break-before: page; } #preview > h1:first-child, .markdown-body > h1:first-child { break-before: auto; }' : ''}
     ${options.numberHeadings ? `
     .markdown-body { counter-reset: h1 h2 h3 h4; }
