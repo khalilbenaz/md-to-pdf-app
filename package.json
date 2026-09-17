@@ -78,13 +78,7 @@
       "icon": "build/icon.icns",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        }
+        { "target": "dmg", "arch": ["arm64", "x64"] }
       ],
       "category": "public.app-category.productivity",
       "identity": null,
@@ -94,15 +88,8 @@
             "CFBundleTypeName": "Markdown File",
             "CFBundleTypeRole": "Editor",
             "LSHandlerRank": "Default",
-            "LSItemContentTypes": [
-              "net.daringfireball.markdown",
-              "public.plain-text"
-            ],
-            "CFBundleTypeExtensions": [
-              "md",
-              "markdown",
-              "txt"
-            ]
+            "LSItemContentTypes": ["net.daringfireball.markdown", "public.plain-text"],
+            "CFBundleTypeExtensions": ["md", "markdown", "txt"]
           }
         ]
       }
@@ -110,12 +97,7 @@
     "win": {
       "icon": "build/icon.png",
       "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
+        { "target": "nsis", "arch": ["x64"] }
       ]
     },
     "nsis": {

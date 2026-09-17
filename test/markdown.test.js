@@ -44,7 +44,7 @@ test('le bloc de notes porte un titre français', () => {
   assert.match(html, /<h2 id="footnote-label">Notes<\/h2>/);
 });
 
-test('une définition jamais appelée n\'est pas rendue', () => {
+test("une définition jamais appelée n'est pas rendue", () => {
   const html = parse('Rien.\n\n[^9]: jamais appelée\n');
   assert.doesNotMatch(html, /jamais appelée/);
   assert.doesNotMatch(html, /footnotes/);
