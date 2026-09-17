@@ -158,3 +158,110 @@ main.no-sidebar.no-editor { grid-template-columns: 1fr; }
   color: var(--fg-muted);
   background: var(--bg);
 }
+
+/* ---------- Notes de bas de page ---------- */
+.markdown-body sup a[data-footnote-ref] {
+  text-decoration: none;
+  padding: 0 0.15em;
+  font-weight: 600;
+  color: var(--accent);
+}
+.markdown-body .footnotes {
+  font-size: 0.9em;
+  color: var(--fg-muted);
+}
+.markdown-body .footnotes h2 {
+  font-size: 1em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  border: 0;
+}
+.markdown-body .footnotes ol {
+  padding-left: 1.2em;
+}
+.markdown-body .footnotes a[data-footnote-backref] {
+  text-decoration: none;
+  margin-left: 0.3em;
+}
+.markdown-body hr[data-footnotes] {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin-top: 2.5rem;
+}
+
+/* ---------- Admonitions ---------- */
+.markdown-body .markdown-alert {
+  border-left: 4px solid var(--alert-color);
+  background: color-mix(in srgb, var(--alert-color) 8%, transparent);
+  padding: 0.8rem 1rem;
+  margin: 1.2rem 0;
+  border-radius: 0 6px 6px 0;
+  --alert-color: var(--accent);
+}
+.markdown-body .markdown-alert > :first-child { margin-top: 0; }
+.markdown-body .markdown-alert > :last-child { margin-bottom: 0; }
+.markdown-body .markdown-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  font-weight: 600;
+  color: var(--alert-color);
+  margin-bottom: 0.4rem;
+}
+.markdown-body .markdown-alert-icon { flex: none; }
+
+.markdown-body .markdown-alert-note      { --alert-color: #2563eb; }
+.markdown-body .markdown-alert-tip       { --alert-color: #15803d; }
+.markdown-body .markdown-alert-important { --alert-color: #7c3aed; }
+.markdown-body .markdown-alert-warning   { --alert-color: #b45309; }
+.markdown-body .markdown-alert-caution   { --alert-color: #b91c1c; }
+
+:root[data-theme="dark"] .markdown-body .markdown-alert-note      { --alert-color: #60a5fa; }
+:root[data-theme="dark"] .markdown-body .markdown-alert-tip       { --alert-color: #4ade80; }
+:root[data-theme="dark"] .markdown-body .markdown-alert-important { --alert-color: #c084fc; }
+:root[data-theme="dark"] .markdown-body .markdown-alert-warning   { --alert-color: #fbbf24; }
+:root[data-theme="dark"] .markdown-body .markdown-alert-caution   { --alert-color: #f87171; }
+
+/* ---------- Sommaire [[toc]] ---------- */
+.markdown-body .md-toc {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.9rem 1.2rem;
+  margin: 1.5rem 0;
+  background: var(--bg-alt);
+}
+.markdown-body .md-toc-title {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.8em;
+  color: var(--fg-muted);
+}
+.markdown-body .md-toc ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.markdown-body .md-toc li { margin: 0.15rem 0; }
+.markdown-body .md-toc-h2 { padding-left: 1.1rem; }
+.markdown-body .md-toc-h3 { padding-left: 2.2rem; }
+.markdown-body .md-toc a { text-decoration: none; }
+.markdown-body .md-toc a:hover { text-decoration: underline; }
+
+/* ---------- Figures ---------- */
+.markdown-body figure {
+  margin: 1.5rem 0;
+  text-align: center;
+}
+.markdown-body figure img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+.markdown-body figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.88em;
+  color: var(--fg-muted);
+  font-style: italic;
+}

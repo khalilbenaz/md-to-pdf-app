@@ -1,19 +1,4 @@
-// ---------- Marked setup ----------
-function setupMarked() {
-  if (window.markedHighlight && window.hljs) {
-    marked.use(window.markedHighlight.markedHighlight({
-      langPrefix: 'hljs language-',
-      highlight(code, lang) {
-        const language = hljs.getLanguage(lang) ? lang : 'plaintext';
-        return hljs.highlight(code, { language, ignoreIllegals: true }).value;
-      },
-    }));
-  }
-  if (window.markedKatex) marked.use(window.markedKatex({ throwOnError: false }));
-  marked.use({ gfm: true, breaks: false });
-}
-setupMarked();
-
+// ---------- Mermaid ----------
 if (window.mermaid) mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
 
 // ---------- Front-matter ----------
@@ -151,9 +136,8 @@ let mermaidPending = Promise.resolve();
 function render() {
   const src = editor ? editor.getValue() : '';
   const { body } = stripFrontMatter(src);
-  // `<!-- pagebreak -->` is invisible on screen but has to survive as an element
-  // for the export stylesheet to hang a `break-after` on it.
-  preview.innerHTML = marked.parse(body.replace(/<!--\s*pagebreak\s*-->/gi, '<div class="page-break"></div>'));
+  preview.innerHTML = md.parse(body);
+  const { headings } = md.enhance(preview);
   resolveLocalImages();
 
   if (window.mermaid) {
@@ -169,7 +153,7 @@ function render() {
     try { mermaidPending = Promise.resolve(mermaid.run({ querySelector: '.mermaid' })); } catch {}
   }
 
-  buildToc();
+  buildToc(headings);
   updateStats();
 }
 
@@ -198,22 +182,24 @@ function updateStats() {
 }
 
 // ---------- TOC ----------
-function buildToc() {
+// Le panneau latéral consomme la liste produite par `enhance()` : les
+// identifiants sont attribués une seule fois, sinon les deux sommaires
+// divergeraient.
+function buildToc(headings) {
   const toc = document.getElementById('toc');
   toc.innerHTML = '';
-  preview.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((h, i) => {
-    if (!h.id) h.id = 'h-' + i;
+  for (const h of headings) {
     const a = document.createElement('a');
     a.href = '#' + h.id;
-    a.textContent = h.textContent;
-    a.className = h.tagName.toLowerCase();
+    a.textContent = h.text;
+    a.className = h.el.tagName.toLowerCase();
     a.addEventListener('click', (e) => {
       e.preventDefault();
-      const top = h.getBoundingClientRect().top - preview.getBoundingClientRect().top + preview.scrollTop - 8;
+      const top = h.el.getBoundingClientRect().top - preview.getBoundingClientRect().top + preview.scrollTop - 8;
       preview.scrollTo({ top, behavior: 'smooth' });
     });
     toc.appendChild(a);
-  });
+  }
 }
 
 // ---------- File ops ----------
@@ -514,6 +500,8 @@ function paginationCss(options = {}) {
   return `
     h1, h2, h3, h4, h5, h6 { break-after: avoid; break-inside: avoid; }
     table, pre, blockquote, figure, img, .mermaid, .katex-display { break-inside: avoid; }
+    .markdown-alert, .md-toc { break-inside: avoid; }
+    .footnotes h2 { break-after: avoid; }
     tr, li { break-inside: avoid; }
     p { orphans: 3; widows: 3; }
     .page-break { break-after: page; height: 0; }
@@ -635,6 +623,20 @@ function fibonacci(n) {
 ## Maths
 
 $$\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}$$
+
+## Notes et encadrés
+
+Une affirmation qui mérite une source[^1].
+
+[^1]: La source en question.
+
+> [!TIP]
+> \`> [!NOTE]\`, \`[!TIP]\`, \`[!IMPORTANT]\`, \`[!WARNING]\` et \`[!CAUTION]\`
+> produisent un encadré. La syntaxe \`:::note\` marche aussi.
+
+> [!WARNING]
+> Insère \`[[toc]]\` où tu veux un sommaire, et une image seule sur sa
+> ligne devient une figure numérotée.
 
 ## Diagramme
 

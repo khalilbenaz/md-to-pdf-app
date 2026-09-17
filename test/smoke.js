@@ -58,17 +58,15 @@ app.whenReady().then(async () => {
 
   // --- libraries reached the renderer ---
   const libs = await win.webContents.executeJavaScript(
-    'JSON.stringify({hljs: typeof window.hljs, katex: typeof window.katex, katexExt: typeof window.markedKatex, mermaid: typeof window.mermaid, marked: typeof window.marked})'
+    'JSON.stringify({parse: typeof window.md?.parse, mermaid: typeof window.mermaid})'
   );
   const l = JSON.parse(libs);
-  check('highlight.js is available', l.hljs === 'object', libs);
-  check('KaTeX is available', l.katex === 'object', libs);
-  check('marked-katex-extension is available', l.katexExt === 'function', libs);
+  check('the markdown engine is available', l.parse === 'function', libs);
   check('mermaid is available', l.mermaid === 'object', libs);
 
   // --- the extensions are actually registered on marked ---
   const parsed = await win.webContents.executeJavaScript(
-    `window.marked.parse(${JSON.stringify(SAMPLE)})`
+    `window.md.parse(${JSON.stringify(SAMPLE)})`
   );
   check('block math is typeset', parsed.includes('katex-display'));
   check('inline math is typeset', parsed.includes('class="katex"'));
@@ -77,7 +75,10 @@ app.whenReady().then(async () => {
   // --- render the sample through the real preview ---
   const rendered = await win.webContents.executeJavaScript(`(async () => {
     const preview = document.getElementById('preview');
-    preview.innerHTML = window.marked.parse(${JSON.stringify(SAMPLE)}.replace(/<!--\\s*pagebreak\\s*-->/gi, '<div class="page-break"></div>'));
+    // Pas de pré-transformation ici : le test pré-remplaçait lui-même le
+    // marqueur, si bien que la vérification portait sur son propre \`.replace\`
+    // et passait encore si \`preprocess()\` disparaissait du moteur.
+    preview.innerHTML = window.md.parse(${JSON.stringify(SAMPLE)});
     const blocks = preview.querySelectorAll('pre code.language-mermaid, pre code.hljs.language-mermaid');
     blocks.forEach((el, i) => {
       const div = document.createElement('div');
@@ -146,6 +147,199 @@ app.whenReady().then(async () => {
   check('printToPDF produces a PDF', pdf.length > 1000 && pdf.subarray(0, 4).toString() === '%PDF');
   check('KaTeX fonts are embedded in the PDF', /KaTeX_/.test(pdf.toString('latin1')));
   await fs.unlink(staged).catch(() => {});
+
+  // Les identifiants positionnels (`h-0`, `h-1`) se décalent dès qu'un titre est
+  // ajouté au-dessus : une ancre d'un HTML exporté cesse de désigner la même
+  // section. Les slugs dérivés du texte sont stables.
+  const slugs = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse('# Mise en page\\n\\n## Notes\\n\\n## Notes\\n');
+    const { headings } = window.md.enhance(preview);
+    return JSON.stringify({
+      ids: [...preview.querySelectorAll('h1,h2')].map(h => h.id),
+      returned: headings.map(h => h.id + ':' + h.level),
+    });
+  })()`);
+  const s = JSON.parse(slugs);
+  check('les titres reçoivent des slugs stables', s.ids[0] === 'mise-en-page', slugs);
+  check('les titres homonymes sont dédoublonnés', s.ids[1] === 'notes' && s.ids[2] === 'notes-2', slugs);
+  check('enhance() retourne les titres avec leur niveau', s.returned[0] === 'mise-en-page:1', slugs);
+
+  // `marked-footnote` produit `<h2 id="footnote-label">Notes</h2>`, et chaque
+  // appel de note porte `aria-describedby="footnote-label"`. Une réécriture
+  // inconditionnelle de l'identifiant fait pointer toutes ces références dans
+  // le vide. Et ce `<h2>` n'est pas un titre du document : il n'a rien à faire
+  // dans le sommaire ni dans le panneau latéral.
+  const notes = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse('# Titre\\n\\nTexte[^1].\\n\\n[^1]: la note\\n');
+    const { headings } = window.md.enhance(preview);
+    return JSON.stringify({
+      titres: headings.map(h => h.text),
+      ancre: !!preview.querySelector('#footnote-label'),
+    });
+  })()`);
+  const n = JSON.parse(notes);
+  check('le titre du bloc de notes n’entre pas dans la liste des titres',
+    !n.titres.includes('Notes'), notes);
+  check('l’ancre #footnote-label survit à la passe DOM', n.ancre, notes);
+
+  const toc = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse('[[toc]]\\n\\n# Un\\n\\n## Deux\\n\\n#### Quatre\\n');
+    window.md.enhance(preview);
+    const nav = preview.querySelector('nav.md-toc');
+    return JSON.stringify({
+      present: !!nav,
+      titre: nav ? nav.querySelector('.md-toc-title')?.textContent : null,
+      liens: nav ? [...nav.querySelectorAll('a')].map(a => a.getAttribute('href')) : [],
+    });
+  })()`);
+  const t = JSON.parse(toc);
+  check('[[toc]] devient un sommaire', t.present, toc);
+  check('le sommaire porte un titre français', t.titre === 'Sommaire', toc);
+  check('le sommaire s’arrête au niveau 3', t.liens.length === 2 && t.liens[0] === '#un', toc);
+
+  const tocVide = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse('[[toc]]\\n\\nTexte sans titre.\\n');
+    window.md.enhance(preview);
+    return JSON.stringify({ nav: !!preview.querySelector('nav.md-toc'), reste: preview.textContent.includes('[[toc]]') });
+  })()`);
+  const tv = JSON.parse(tocVide);
+  check('[[toc]] sans titre ne laisse pas d’encadré vide', !tv.nav && !tv.reste, tocVide);
+
+  // Le marqueur ne doit se déclencher que sur un paragraphe qui n'est QUE le
+  // texte `[[toc]]`. Sinon on ne peut pas documenter la syntaxe sans qu'elle
+  // s'exécute : `\`[[toc]]\``, `**[[toc]]**` et `> [[toc]]` produisaient un
+  // vrai sommaire, parce que `textContent` aplatit les enfants.
+  const tocLitteral = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    const cas = {
+      code: '\\\`[[toc]]\\\`\\n\\n# Un\\n\\n## Deux\\n',
+      gras: '**[[toc]]**\\n\\n# Un\\n\\n## Deux\\n',
+      citation: '> [[toc]]\\n\\n# Un\\n\\n## Deux\\n',
+    };
+    const out = {};
+    for (const [nom, src] of Object.entries(cas)) {
+      preview.innerHTML = window.md.parse(src);
+      window.md.enhance(preview);
+      out[nom] = !preview.querySelector('nav.md-toc');
+    }
+    preview.innerHTML = window.md.parse('[[toc]]\\n\\n# Un\\n\\n## Deux\\n');
+    window.md.enhance(preview);
+    out.nuReste = !!preview.querySelector('nav.md-toc');
+    return JSON.stringify(out);
+  })()`);
+  const tl = JSON.parse(tocLitteral);
+  check('[[toc]] entre accents graves reste du code littéral', tl.code, tocLitteral);
+  check('[[toc]] en gras ou en citation ne déclenche pas le sommaire',
+    tl.gras && tl.citation, tocLitteral);
+  check('le marqueur [[toc]] nu déclenche toujours le sommaire', tl.nuReste, tocLitteral);
+
+  const figures = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse(
+      '![Le schéma](a.png)\\n\\n![](b.png)\\n\\n![La copie](c.png)\\n\\n[![Lien](d.png)](https://exemple.fr)\\n'
+    );
+    window.md.enhance(preview);
+    return JSON.stringify({
+      legendes: [...preview.querySelectorAll('figcaption')].map(f => f.textContent),
+      figures: preview.querySelectorAll('figure').length,
+      lienIntact: !!preview.querySelector('a > img'),
+      lienPasEnFigure: !preview.querySelector('figure > a'),
+    });
+  })()`);
+  const f = JSON.parse(figures);
+  check('les figures sont numérotées dans l’ordre',
+    f.legendes[0] === 'Figure 1 — Le schéma' && f.legendes[1] === 'Figure 2 — La copie', figures);
+  check('une image sans texte alternatif n’est pas numérotée', f.legendes.length === 2 && f.figures === 3, figures);
+  check('une image cliquable reste un lien', f.lienIntact && f.lienPasEnFigure, figures);
+
+  const pagination = await win.webContents.executeJavaScript(
+    'JSON.stringify(window.paginationCss({}))'
+  );
+  const css = JSON.parse(pagination);
+  check('la pagination protège les admonitions', css.includes('.markdown-alert'), css.slice(0, 200));
+  check('la pagination protège les sommaires et les notes',
+    css.includes('.md-toc') && css.includes('.footnotes'), css.slice(0, 200));
+
+  // Les exports reprennent le DOM de l'aperçu : ce test échouerait si une passe
+  // DOM n'était appliquée que pour l'écran.
+  const exporte = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse(
+      '[[toc]]\\n\\n# Titre\\n\\n> [!WARNING]\\n> danger\\n\\n![Le schéma](a.png)\\n\\nTexte[^1].\\n\\n[^1]: la note\\n'
+    );
+    window.md.enhance(preview);
+    const html = preview.innerHTML;
+    return JSON.stringify({
+      toc: html.includes('md-toc'),
+      alerte: html.includes('markdown-alert-warning'),
+      figure: html.includes('Figure 1'),
+      note: html.includes('footnotes'),
+    });
+  })()`);
+  const ex = JSON.parse(exporte);
+  check('le sommaire survit dans le HTML imprimable', ex.toc, exporte);
+  check('les admonitions survivent dans le HTML imprimable', ex.alerte, exporte);
+  check('les légendes survivent dans le HTML imprimable', ex.figure, exporte);
+  check('les notes survivent dans le HTML imprimable', ex.note, exporte);
+
+  // Jusqu'ici rien n'appelait `buildPrintableHtml()` : les seules vérifications
+  // liées à l'export portaient sur le TEXTE retourné par `paginationCss()`.
+  // C'est ce trou qui a laissé passer un CSS entièrement scopé `#preview`,
+  // invisible dans le HTML exporté. On exerce donc le pipeline pour de vrai.
+  // Ce bloc réécrit `preview.innerHTML` via `render()` : il doit rester le
+  // dernier, sous peine de casser les vérifications de polices KaTeX ci-dessus.
+  const EXPORT_SAMPLE = [
+    '[[toc]]',
+    '',
+    '# Titre',
+    '',
+    '## Sous-titre',
+    '',
+    '> [!WARNING]',
+    '> danger',
+    '',
+    '![Le schéma](a.png)',
+    '',
+    'Texte[^1].',
+    '',
+    '[^1]: la note',
+    '',
+  ].join('\n');
+
+  const printable = await win.webContents.executeJavaScript(`(async () => {
+    // \`editor\` est un \`let\` de premier niveau : il n'est pas sur \`window\`.
+    // \`newTab\` est une déclaration de fonction, elle l'est, et elle passe par
+    // le vrai chemin — \`setActiveTab\` → \`editor.setValue\` → \`render()\`.
+    window.newTab({ content: ${JSON.stringify(EXPORT_SAMPLE)} });
+    const html = await window.buildPrintableHtml({});
+    const corps = html.slice(html.indexOf('<body>'));
+    const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+    return JSON.stringify({
+      corpsAlerte: corps.includes('markdown-alert-warning'),
+      corpsToc: corps.includes('md-toc-title'),
+      corpsFigure: corps.includes('Figure 1'),
+      corpsNotes: corps.includes('class="footnotes"'),
+      cssAlerte: style.includes('.markdown-body .markdown-alert'),
+      cssToc: style.includes('.markdown-body .md-toc'),
+      cssFigure: style.includes('.markdown-body figcaption'),
+      cssNotes: style.includes('.markdown-body .footnotes'),
+    });
+  })()`);
+  const pr = JSON.parse(printable);
+  check('buildPrintableHtml() embarque l’encadré et le sommaire',
+    pr.corpsAlerte && pr.corpsToc, printable);
+  check('buildPrintableHtml() embarque la légende et le bloc de notes',
+    pr.corpsFigure && pr.corpsNotes, printable);
+  // L'assertion qui aurait attrapé le CSS scopé `#preview` : l'export HTML
+  // n'enveloppe que dans `.markdown-body`, sans `id="preview"`.
+  check('le CSS exporté stylise les encadrés et les sommaires via .markdown-body',
+    pr.cssAlerte && pr.cssToc, printable);
+  check('le CSS exporté stylise les légendes et les notes via .markdown-body',
+    pr.cssFigure && pr.cssNotes, printable);
 
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);

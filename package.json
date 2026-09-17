@@ -1,15 +1,15 @@
 {
   "name": "md-to-pdf-app",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Markdown editor with PDF export for macOS and Windows",
   "main": "main.js",
   "scripts": {
-    "bundle": "esbuild renderer/editor-src.js --bundle --outfile=renderer/editor-bundle.js --format=iife --minify && esbuild renderer/vendor-src.js --bundle --outfile=renderer/vendor-bundle.js --format=iife --minify",
+    "bundle": "esbuild renderer/editor-src.js --bundle --outfile=renderer/editor-bundle.js --format=iife --minify && esbuild renderer/markdown-src.js --bundle --outfile=renderer/markdown-bundle.js --format=iife --minify",
     "start": "npm run bundle && electron .",
     "build": "npm run bundle && electron-builder",
     "build:mac": "npm run bundle && electron-builder --mac",
     "build:win": "npm run bundle && electron-builder --win",
-    "test": "npm run bundle && electron test/smoke.js"
+    "test": "npm run bundle && node --test test/markdown.test.js && electron test/smoke.js"
   },
   "author": "",
   "license": "MIT",
@@ -34,6 +34,9 @@
     "highlight.js": "^11.11.1",
     "katex": "^0.16.45",
     "marked": "^14.1.0",
+    "marked-alert": "^2.1.2",
+    "marked-directive": "^1.0.7",
+    "marked-footnote": "^1.4.0",
     "marked-highlight": "^2.2.4",
     "marked-katex-extension": "^5.1.8",
     "mermaid": "^11.14.0"

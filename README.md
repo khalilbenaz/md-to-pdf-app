@@ -43,6 +43,11 @@ Construit avec [Electron](https://www.electronjs.org/) + [CodeMirror 6](https://
 - **Coloration syntaxique** du code (highlight.js — ~45 langages courants)
 - **Formules mathématiques** via KaTeX (`$inline$` et `$$block$$`)
 - **Diagrammes Mermaid** (flowchart, séquence, Gantt, classe, état…)
+- **Notes de bas de page** (`Texte[^1]` + `[^1]: la note`), rejetées en fin de document
+- **Encadrés** `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]` — syntaxe GitHub et Obsidian, `:::note` également accepté
+- **Sommaire** inséré dans le corps du document avec `[[toc]]` (titres 1 à 3)
+- **Figures numérotées** : une image seule sur sa ligne devient une figure légendée par son texte alternatif, mais une image sans texte alternatif devient une simple figure sans légende ni numéro, une image décorative ne consommant pas de numéro de figure
+- **Ancres stables** : les titres reçoivent un identifiant dérivé de leur texte, pas de leur position
 - **Thème clair / sombre** (`Cmd/Ctrl+T`), appliqué à l'éditeur, l'aperçu et les diagrammes
 - **Images locales** : les chemins relatifs sont résolus par rapport au fichier `.md`, pas à l'application
 - **Saut de page manuel** : insérez `<!-- pagebreak -->` — affiché comme un repère dans l'aperçu, appliqué à l'impression
@@ -244,14 +249,16 @@ md-to-pdf-app/
 │   ├── styles.css              # Thèmes clair/sombre, layout en grille
 │   ├── editor-src.js           # Source CodeMirror 6 (bundlée par esbuild)
 │   ├── editor-bundle.js        # Bundle généré (ignoré par git)
-│   ├── vendor-src.js           # Source highlight.js (bundlée par esbuild)
-│   ├── vendor-bundle.js        # Bundle généré (ignoré par git)
+│   ├── markdown/               # Moteur de rendu : parse.js, enhance.js, labels.js, icons.js
+│   ├── markdown-src.js         # Entrée navigateur du moteur (bundlée par esbuild)
+│   ├── markdown-bundle.js      # Bundle généré (ignoré par git)
 │   └── renderer.js             # Logique UI : onglets, aperçu, marked, mermaid, katex,
 │                               #   TOC, recherche, préférences
 ├── build/
 │   ├── icon.html               # Source de l'icône (SVG)
 │   ├── make-icon.js            # Rend l'icône en PNG 1024 via Electron
 │   ├── icon.png / icon.icns    # Icônes consommées par electron-builder
+├── test/markdown.test.js       # Tests unitaires du moteur, sans Electron (npm test)
 ├── test/smoke.js               # Test de fumée end-to-end (npm test)
 ├── .github/workflows/ci.yml        # CI : test de fumée macOS / Linux / Windows
 ├── .github/workflows/release.yml   # CI : build & publication des installateurs
@@ -279,8 +286,8 @@ md-to-pdf-app/
 | Script | Description |
 |---|---|
 | `npm start` | Bundle le renderer + lance l'app en dev |
-| `npm run bundle` | Bundle `editor-src.js` et `vendor-src.js` → `*-bundle.js` (esbuild, minifié) |
-| `npm test` | Test de fumée end-to-end : lance le vrai renderer dans Electron et vérifie KaTeX, highlight.js, Mermaid, la CSP et les polices du PDF |
+| `npm run bundle` | Bundle `renderer/editor-src.js` et `renderer/markdown-src.js` vers `editor-bundle.js` et `markdown-bundle.js` (esbuild, minifié) |
+| `npm test` | Tests unitaires du moteur (`node --test`, sans Electron) puis test de fumée end-to-end |
 | `npm run build` | Build des installateurs pour la plateforme courante |
 | `npm run build:mac` | Build `.dmg` (arm64 + x64) |
 | `npm run build:win` | Build installateur NSIS |
