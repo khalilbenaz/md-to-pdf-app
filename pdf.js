@@ -86,4 +86,13 @@ function fillTocPages(html, pages) {
   );
 }
 
-module.exports = { pdfOptions, destinationPages, fillTocPages, decodePdfName };
+// Décide s'il faut une seconde passe, et prépare le HTML à rendre. Isolé du
+// processus principal pour être exerçable sans navigateur : c'est la règle qui
+// évite de doubler le coût d'un export sur un document sans sommaire.
+function tocSecondPass(html, pdfBuffer) {
+  if (!html.includes('class="md-toc-page"')) return { needed: false, html };
+  const numbered = fillTocPages(html, destinationPages(pdfBuffer));
+  return numbered === html ? { needed: false, html } : { needed: true, html: numbered };
+}
+
+module.exports = { pdfOptions, destinationPages, fillTocPages, decodePdfName, tocSecondPass };

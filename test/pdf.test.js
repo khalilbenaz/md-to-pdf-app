@@ -2,7 +2,7 @@
 // directement, là où le test de fumée doit démarrer un navigateur.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { pdfOptions, destinationPages, fillTocPages, decodePdfName } = require('../pdf.js');
+const { pdfOptions, destinationPages, fillTocPages, decodePdfName, tocSecondPass } = require('../pdf.js');
 
 test('les signets exigent aussi le PDF balisé', () => {
   // Mesuré sur Electron 32 : generateDocumentOutline seul ne produit aucun
@@ -73,4 +73,36 @@ test('les emplacements du sommaire reçoivent leur numéro', () => {
   const out = fillTocPages(html, { un: 4 });
   assert.match(out, /data-target="un">4<\/span>/);
   assert.match(out, /data-target="absent"><\/span>/);
+});
+
+// PDF témoin, construit à la main comme les tests de destinationPages
+// ci-dessus : une table de destinations avec une seule ancre résolue.
+const PDF_TEMOIN = Buffer.from([
+  '%PDF-1.7',
+  '2 0 obj<</Type /Page /Parent 1 0 R>>endobj',
+  '11 0 obj<</Type /Page /Parent 1 0 R>>endobj',
+  '1 0 obj<</Type /Pages /Kids [2 0 R 11 0 R]>>endobj',
+  '17 0 obj<</un [2 0 R /XYZ 0 0 0]>>endobj',
+  '20 0 obj<</Type /Catalog /Dests 17 0 R>>endobj',
+].join('\n'), 'latin1');
+
+test('un HTML sans emplacement ne déclenche pas de seconde passe', () => {
+  const html = '<p>Rien à remplir ici.</p>';
+  const result = tocSecondPass(html, PDF_TEMOIN);
+  assert.equal(result.needed, false);
+  assert.equal(result.html, html);
+});
+
+test('un HTML avec emplacements dont aucune cible ne figure dans la table ne déclenche pas de seconde passe', () => {
+  const html = '<span class="md-toc-page" data-target="absent"></span>';
+  const result = tocSecondPass(html, PDF_TEMOIN);
+  assert.equal(result.needed, false);
+  assert.equal(result.html, html);
+});
+
+test('un HTML avec emplacements résolus déclenche la seconde passe et remplit le HTML', () => {
+  const html = '<span class="md-toc-page" data-target="un"></span>';
+  const result = tocSecondPass(html, PDF_TEMOIN);
+  assert.equal(result.needed, true);
+  assert.match(result.html, /data-target="un">1<\/span>/);
 });

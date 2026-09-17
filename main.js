@@ -4,7 +4,7 @@ const { existsSync } = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const chokidar = require('chokidar');
-const { pdfOptions, destinationPages, fillTocPages } = require('./pdf.js');
+const { pdfOptions, tocSecondPass } = require('./pdf.js');
 
 let mainWindow;
 let watcher = null;
@@ -426,24 +426,26 @@ ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => 
 
   const stagedHtml = await stageHtml(html);
   const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
-  await pdfWin.loadFile(stagedHtml);
-  // Les numéros de page ne s'obtiennent que du PDF lui-même : `offsetTop` se
-  // trompe dès qu'une règle de pagination déplace un élément. On rend donc une
-  // première fois pour savoir, puis une seconde pour montrer. Sans sommaire,
-  // rien à remplir et la seconde passe est sautée.
-  let buffer = await pdfWin.webContents.printToPDF(pdfOptions(options));
-  if (html.includes('class="md-toc-page"')) {
-    const numbered = fillTocPages(html, destinationPages(buffer));
-    if (numbered !== html) {
-      const restaged = await stageHtml(numbered);
+  let restaged;
+  try {
+    await pdfWin.loadFile(stagedHtml);
+    // Les numéros de page ne s'obtiennent que du PDF lui-même : `offsetTop` se
+    // trompe dès qu'une règle de pagination déplace un élément. On rend donc une
+    // première fois pour savoir, puis une seconde pour montrer. Sans sommaire,
+    // rien à remplir et la seconde passe est sautée.
+    let buffer = await pdfWin.webContents.printToPDF(pdfOptions(options));
+    const { needed, html: numbered } = tocSecondPass(html, buffer);
+    if (needed) {
+      restaged = await stageHtml(numbered);
       await pdfWin.loadFile(restaged);
       buffer = await pdfWin.webContents.printToPDF(pdfOptions(options));
-      await fs.unlink(restaged).catch(() => {});
     }
+    await fs.writeFile(filePath, buffer);
+  } finally {
+    pdfWin.close();
+    await fs.unlink(stagedHtml).catch(() => {});
+    if (restaged) await fs.unlink(restaged).catch(() => {});
   }
-  await fs.writeFile(filePath, buffer);
-  pdfWin.close();
-  await fs.unlink(stagedHtml).catch(() => {});
   shell.showItemInFolder(filePath);
   return filePath;
 });
