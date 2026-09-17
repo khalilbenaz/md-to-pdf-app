@@ -427,7 +427,20 @@ ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => 
   const stagedHtml = await stageHtml(html);
   const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
   await pdfWin.loadFile(stagedHtml);
-  const buffer = await pdfWin.webContents.printToPDF(pdfOptions(options));
+  // Les numéros de page ne s'obtiennent que du PDF lui-même : `offsetTop` se
+  // trompe dès qu'une règle de pagination déplace un élément. On rend donc une
+  // première fois pour savoir, puis une seconde pour montrer. Sans sommaire,
+  // rien à remplir et la seconde passe est sautée.
+  let buffer = await pdfWin.webContents.printToPDF(pdfOptions(options));
+  if (html.includes('class="md-toc-page"')) {
+    const numbered = fillTocPages(html, destinationPages(buffer));
+    if (numbered !== html) {
+      const restaged = await stageHtml(numbered);
+      await pdfWin.loadFile(restaged);
+      buffer = await pdfWin.webContents.printToPDF(pdfOptions(options));
+      await fs.unlink(restaged).catch(() => {});
+    }
+  }
   await fs.writeFile(filePath, buffer);
   pdfWin.close();
   await fs.unlink(stagedHtml).catch(() => {});

@@ -265,3 +265,25 @@ main.no-sidebar.no-editor { grid-template-columns: 1fr; }
   color: var(--fg-muted);
   font-style: italic;
 }
+
+/* ---------- Numéros de page du sommaire ---------- */
+/* Vide à l'écran, rempli par l'export : la ligne de conduite ne s'affiche que
+   lorsqu'il y a un numéro à rejoindre. */
+.markdown-body .md-toc li:has(.md-toc-page:not(:empty)) {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+.markdown-body .md-toc-page:not(:empty) {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-muted);
+}
+.markdown-body .md-toc li:has(.md-toc-page:not(:empty))::after {
+  content: '';
+  order: 1;
+  flex: 1;
+  border-bottom: 1px dotted var(--border);
+  margin: 0 0.2rem 0.25rem;
+}
+.markdown-body .md-toc-page:not(:empty) { order: 2; }

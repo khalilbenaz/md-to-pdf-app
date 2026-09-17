@@ -360,6 +360,50 @@ app.whenReady().then(async () => {
   check('le CSS exporté stylise les légendes et les notes via .markdown-body',
     pr.cssFigure && pr.cssNotes, printable);
 
+  const tocSlots = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse('[[toc]]\\n\\n# Premier\\n\\n## Deuxième\\n');
+    window.md.enhance(preview);
+    const slots = [...preview.querySelectorAll('.md-toc-page')];
+    return JSON.stringify({
+      nombre: slots.length,
+      cibles: slots.map(s => s.dataset.target),
+      vides: slots.every(s => s.textContent === ''),
+      html: preview.querySelector('.md-toc li').innerHTML,
+    });
+  })()`);
+  const ts = JSON.parse(tocSlots);
+  check('chaque entrée de sommaire porte un emplacement de page', ts.nombre === 2, tocSlots);
+  check('l’emplacement vise l’ancre du titre', ts.cibles[0] === 'premier', tocSlots);
+  check('l’emplacement est vide à l’écran', ts.vides, tocSlots);
+  check('l’emplacement a la forme attendue par le remplissage',
+    /<span class="md-toc-page" data-target="premier"><\/span>/.test(ts.html), ts.html);
+
+  // Le seul test qui prouve la chaîne entière : rendre, lire les pages dans le
+  // PDF, remplir, re-rendre.
+  const { fillTocPages: fill, destinationPages: destPagesOf } = require(path.join(root, 'pdf.js'));
+  const twoPass = await win.webContents.executeJavaScript(`(async () => {
+    // \`buildPrintableHtml()\` appelle \`render()\`, qui reconstruit l'aperçu depuis
+    // l'éditeur : écrire dans \`preview.innerHTML\` avant l'appel ne survivrait pas.
+    window.newTab({ content: '[[toc]]\\n\\n# Un\\n\\n<!-- pagebreak -->\\n\\n# Deux\\n' });
+    return await window.buildPrintableHtml({});
+  })()`);
+  const tmpTwo = path.join(app.getPath('temp'), `mdtopdf-twopass-${Date.now()}.html`);
+  await fs.writeFile(tmpTwo, twoPass, 'utf8');
+  const twoWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  await twoWin.loadFile(tmpTwo);
+  const firstPass = await twoWin.webContents.printToPDF({
+    printBackground: true, pageSize: 'A4',
+    margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 },
+    generateDocumentOutline: true, generateTaggedPDF: true,
+  });
+  const found = destPagesOf(firstPass);
+  const numbered = fill(twoPass, found);
+  check('la première passe situe les deux titres', found.un === 1 && found.deux === 2, JSON.stringify(found));
+  check('la seconde passe inscrit les numéros', /data-target="deux">2<\/span>/.test(numbered));
+  twoWin.close();
+  await fs.unlink(tmpTwo).catch(() => {});
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   app.exit(failed.length ? 1 : 0);
