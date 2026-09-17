@@ -11,3 +11,5 @@ Thumbs.db
 renderer/editor-bundle.js
 renderer/markdown-bundle.js
 build/icon.iconset/
+.claude/
+.superpowers/
