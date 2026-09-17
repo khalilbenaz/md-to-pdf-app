@@ -85,11 +85,23 @@ jobs:
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Upload to GitHub Release
+      # One ~130 MB asset per step: uploading the two DMGs together made GitHub
+      # answer "Error saving asset".
+      - name: Upload macOS DMG (arm64)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          files: artifacts/**/*.dmg
+          files: artifacts/**/*-arm64.dmg
+          fail_on_unmatched_files: false
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload macOS DMG (x64)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: artifacts/**/*-x64.dmg
           fail_on_unmatched_files: false
           generate_release_notes: false
         env:
