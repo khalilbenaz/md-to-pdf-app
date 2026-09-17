@@ -236,6 +236,61 @@ app.whenReady().then(async () => {
   check('les légendes survivent dans le HTML imprimable', ex.figure, exporte);
   check('les notes survivent dans le HTML imprimable', ex.note, exporte);
 
+  // Jusqu'ici rien n'appelait `buildPrintableHtml()` : les seules vérifications
+  // liées à l'export portaient sur le TEXTE retourné par `paginationCss()`.
+  // C'est ce trou qui a laissé passer un CSS entièrement scopé `#preview`,
+  // invisible dans le HTML exporté. On exerce donc le pipeline pour de vrai.
+  // Ce bloc réécrit `preview.innerHTML` via `render()` : il doit rester le
+  // dernier, sous peine de casser les vérifications de polices KaTeX ci-dessus.
+  const EXPORT_SAMPLE = [
+    '[[toc]]',
+    '',
+    '# Titre',
+    '',
+    '## Sous-titre',
+    '',
+    '> [!WARNING]',
+    '> danger',
+    '',
+    '![Le schéma](a.png)',
+    '',
+    'Texte[^1].',
+    '',
+    '[^1]: la note',
+    '',
+  ].join('\n');
+
+  const printable = await win.webContents.executeJavaScript(`(async () => {
+    // \`editor\` est un \`let\` de premier niveau : il n'est pas sur \`window\`.
+    // \`newTab\` est une déclaration de fonction, elle l'est, et elle passe par
+    // le vrai chemin — \`setActiveTab\` → \`editor.setValue\` → \`render()\`.
+    window.newTab({ content: ${JSON.stringify(EXPORT_SAMPLE)} });
+    const html = await window.buildPrintableHtml({});
+    const corps = html.slice(html.indexOf('<body>'));
+    const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+    return JSON.stringify({
+      corpsAlerte: corps.includes('markdown-alert-warning'),
+      corpsToc: corps.includes('md-toc-title'),
+      corpsFigure: corps.includes('Figure 1'),
+      corpsNotes: corps.includes('class="footnotes"'),
+      cssAlerte: style.includes('.markdown-body .markdown-alert'),
+      cssToc: style.includes('.markdown-body .md-toc'),
+      cssFigure: style.includes('.markdown-body figcaption'),
+      cssNotes: style.includes('.markdown-body .footnotes'),
+    });
+  })()`);
+  const pr = JSON.parse(printable);
+  check('buildPrintableHtml() embarque l’encadré et le sommaire',
+    pr.corpsAlerte && pr.corpsToc, printable);
+  check('buildPrintableHtml() embarque la légende et le bloc de notes',
+    pr.corpsFigure && pr.corpsNotes, printable);
+  // L'assertion qui aurait attrapé le CSS scopé `#preview` : l'export HTML
+  // n'enveloppe que dans `.markdown-body`, sans `id="preview"`.
+  check('le CSS exporté stylise les encadrés et les sommaires via .markdown-body',
+    pr.cssAlerte && pr.cssToc, printable);
+  check('le CSS exporté stylise les légendes et les notes via .markdown-body',
+    pr.cssFigure && pr.cssNotes, printable);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   app.exit(failed.length ? 1 : 0);
