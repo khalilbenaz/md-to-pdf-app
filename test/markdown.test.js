@@ -31,3 +31,26 @@ test('<!-- pagebreak --> devient un élément', () => {
   const html = parse('Avant\n\n<!-- pagebreak -->\n\nAprès');
   assert.match(html, /<div class="page-break"><\/div>/);
 });
+
+test('un appel de note est lié à sa définition', () => {
+  const html = parse('Texte[^1].\n\n[^1]: la note\n');
+  assert.match(html, /<sup><a id="footnote-ref-1" href="#footnote-1"/);
+  assert.match(html, /<section class="footnotes"/);
+  assert.match(html, /la note/);
+});
+
+test('le bloc de notes porte un titre français', () => {
+  const html = parse('Texte[^1].\n\n[^1]: la note\n');
+  assert.match(html, /<h2 id="footnote-label">Notes<\/h2>/);
+});
+
+test('une définition jamais appelée n\'est pas rendue', () => {
+  const html = parse('Rien.\n\n[^9]: jamais appelée\n');
+  assert.doesNotMatch(html, /jamais appelée/);
+  assert.doesNotMatch(html, /footnotes/);
+});
+
+test('un appel sans définition reste littéral', () => {
+  const html = parse('Texte[^2] sans définition.\n');
+  assert.match(html, /Texte\[\^2\] sans définition/);
+});

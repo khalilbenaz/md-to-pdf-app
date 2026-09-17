@@ -158,3 +158,34 @@ main.no-sidebar.no-editor { grid-template-columns: 1fr; }
   color: var(--fg-muted);
   background: var(--bg);
 }
+
+/* ---------- Notes de bas de page ---------- */
+#preview sup a[data-footnote-ref] {
+  text-decoration: none;
+  padding: 0 0.15em;
+  font-weight: 600;
+  color: var(--accent);
+}
+#preview .footnotes {
+  font-size: 0.9em;
+  color: var(--fg-muted);
+}
+#preview .footnotes h2 {
+  font-size: 1em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  border: 0;
+}
+#preview .footnotes ol {
+  padding-left: 1.2em;
+}
+#preview .footnotes a[data-footnote-backref] {
+  text-decoration: none;
+  margin-left: 0.3em;
+}
+#preview hr[data-footnotes] {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin-top: 2.5rem;
+}

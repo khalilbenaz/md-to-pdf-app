@@ -12,6 +12,8 @@
 import { Marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 import markedKatex from 'marked-katex-extension';
+import markedFootnote from 'marked-footnote';
+import { LABELS } from './labels.js';
 import hljs from 'highlight.js/lib/common';
 
 import dockerfile from 'highlight.js/lib/languages/dockerfile';
@@ -47,6 +49,16 @@ export function createParser() {
   }));
 
   marked.use(markedKatex({ throwOnError: false }));
+
+  // `headingClass: ''` retire la classe `sr-only` par défaut : le titre doit
+  // être visible, c'est un document imprimé, pas une page web.
+  marked.use(markedFootnote({
+    description: LABELS.footnotes,
+    headingClass: '',
+    footnoteDivider: true,
+    backRefLabel: LABELS.backref,
+  }));
+
   marked.use({ gfm: true, breaks: false });
 
   return (source) => marked.parse(preprocess(source));
