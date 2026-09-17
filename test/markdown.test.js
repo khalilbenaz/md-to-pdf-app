@@ -55,6 +55,20 @@ test('un appel sans définition reste littéral', () => {
   assert.match(html, /Texte\[\^2\] sans définition/);
 });
 
+// `marked-footnote` interpole le libellé BRUT de la note dans `aria-label="…"`
+// sans échapper : un `{0}` dans notre libellé ouvre une injection HTML. Ni le
+// HTML exporté ni les fenêtres d'export PDF et d'impression n'ont de CSP.
+test('un libellé de note ne peut pas injecter de HTML dans le renvoi', () => {
+  const nom = 'x"><img src=x onerror=alert(1)><b';
+  const html = parse(`Texte[^${nom}].\n\n[^${nom}]: la note.\n`);
+  // La charge ne doit subsister sous aucune forme exécutable : ni balise
+  // ouverte, ni attribut d'événement. Elle reste tolérée percent-encodée dans
+  // l'ancre (`%3Cimg`, `onerror%3D`), où elle n'est qu'un fragment d'URL.
+  assert.doesNotMatch(html, /<img/);
+  assert.doesNotMatch(html, /onerror=/);
+  assert.match(html, /aria-label="Retour à l’appel">/);
+});
+
 test('> [!NOTE] devient une admonition titrée en français', () => {
   const html = parse('> [!NOTE]\n> corps\n');
   assert.match(html, /<div class="markdown-alert markdown-alert-note">/);
@@ -94,7 +108,17 @@ test(':::note produit la même admonition', () => {
   assert.match(html, /<strong>gras<\/strong>/);
 });
 
-test(':::inconnu ne produit pas d’admonition', () => {
+test(':::inconnu ne produit pas d’admonition mais garde son corps', () => {
   const html = parse(':::inconnu\ncorps\n:::\n');
   assert.doesNotMatch(html, /markdown-alert/);
+  assert.match(html, /corps/);
+});
+
+// Le nom courant chez Docusaurus n'est pas dans nos types : sans repli, marked
+// concatène `ret || ''` et le bloc entier disparaît. Une syntaxe non reconnue
+// doit dégrader, jamais faire disparaître du contenu.
+test(':::danger inconnu conserve son contenu mis en forme', () => {
+  const html = parse(':::danger\n**perdu ?**\n:::\n');
+  assert.doesNotMatch(html, /markdown-alert/);
+  assert.match(html, /<strong>perdu \?<\/strong>/);
 });

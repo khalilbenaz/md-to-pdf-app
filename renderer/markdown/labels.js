@@ -4,7 +4,11 @@ export const LABELS = {
   toc: 'Sommaire',
   figure: 'Figure',
   footnotes: 'Notes',
-  backref: 'Retour à l’appel {0}',
+  // Sans `{0}`, aucune interpolation : `marked-footnote` injecte le libellé
+  // BRUT de la note dans `aria-label="…"` sans l'échapper, et un libellé
+  // referme la balise. On perd le numéro dans l'étiquette d'accessibilité ;
+  // c'est le prix d'une injection HTML dans le fichier que l'utilisateur envoie.
+  backref: 'Retour à l’appel',
   alerts: {
     note: 'Note',
     tip: 'Astuce',

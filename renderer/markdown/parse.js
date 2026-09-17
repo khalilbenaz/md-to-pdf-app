@@ -50,7 +50,11 @@ const directiveAlerts = {
   marker: ':::',
   renderer(token) {
     const name = token.meta.name;
-    if (!ALERT_TYPES.includes(name)) return false;
+    // Retourner `false` ne rend pas la main à un renderer de repli : marked 14
+    // concatène `ret || ''` et le bloc entier disparaît. Un `:::danger` venu
+    // d'un Docusaurus perdrait tout son contenu. On rend donc le corps analysé,
+    // sans encadré : la syntaxe inconnue dégrade au lieu de détruire.
+    if (!ALERT_TYPES.includes(name)) return this.parser.parse(token.tokens);
     return `<div class="markdown-alert markdown-alert-${name}">`
       + `<p class="markdown-alert-title">${ICONS[name]}${LABELS.alerts[name]}</p>`
       + this.parser.parse(token.tokens)
