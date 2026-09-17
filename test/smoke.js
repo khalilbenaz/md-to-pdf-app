@@ -404,6 +404,40 @@ app.whenReady().then(async () => {
   twoWin.close();
   await fs.unlink(tmpTwo).catch(() => {});
 
+  // Le CSS complet (styles.css inliné dans <style>) contient toujours le
+  // sélecteur littéral `.pdf-cover`, que la page de garde soit produite ou
+  // non : on ne peut donc chercher la sous-chaîne que dans le corps, pas dans
+  // le document entier — même idiome que `corps`/`style` plus haut.
+  const cover = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '---\\ntitle: Rapport annuel\\nsubtitle: Exercice 2026\\nauthor: Khalil\\ndate: 17 septembre 2026\\n---\\n\\n# Contenu\\n' });
+    const avec = await window.buildPrintableHtml({ cover: true });
+    const sans = await window.buildPrintableHtml({ cover: false });
+    const corpsAvec = avec.slice(avec.indexOf('<body>'));
+    const corpsSans = sans.slice(sans.indexOf('<body>'));
+    return JSON.stringify({
+      avec: corpsAvec.includes('pdf-cover'),
+      titre: corpsAvec.includes('Rapport annuel'),
+      soustitre: corpsAvec.includes('Exercice 2026'),
+      auteur: corpsAvec.includes('Khalil'),
+      date: corpsAvec.includes('17 septembre 2026'),
+      sans: corpsSans.includes('pdf-cover'),
+    });
+  })()`);
+  const cv = JSON.parse(cover);
+  check('la page de garde est insérée quand l’option est cochée', cv.avec, cover);
+  check('elle reprend titre, sous-titre, auteur et date',
+    cv.titre && cv.soustitre && cv.auteur && cv.date, cover);
+  check('elle est absente quand l’option ne l’est pas', !cv.sans, cover);
+
+  const coverVide = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '# Sans front-matter\\n' });
+    const html = await window.buildPrintableHtml({ cover: true });
+    const corps = html.slice(html.indexOf('<body>'));
+    return JSON.stringify({ garde: corps.includes('pdf-cover') });
+  })()`);
+  check('pas de page de garde sans titre en front-matter',
+    !JSON.parse(coverVide).garde, coverVide);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   app.exit(failed.length ? 1 : 0);

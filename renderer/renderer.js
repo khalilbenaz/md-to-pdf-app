@@ -133,9 +133,14 @@ function resolveLocalImages() {
 // never snapshot the preview mid-render.
 let mermaidPending = Promise.resolve();
 
+// Le front-matter n'est retiré de l'aperçu que pour l'écran : la page de garde
+// de l'export en a besoin.
+let frontMatter = {};
+
 function render() {
   const src = editor ? editor.getValue() : '';
-  const { body } = stripFrontMatter(src);
+  const { meta, body } = stripFrontMatter(src);
+  frontMatter = meta;
   preview.innerHTML = md.parse(body);
   const { headings } = md.enhance(preview);
   resolveLocalImages();
@@ -438,7 +443,7 @@ window.api.onFileChanged(({ path, content }) => {
 
 // ---------- PDF / HTML export ----------
 const pdfModal = document.getElementById('pdf-modal');
-const PDF_FIELDS = ['pdf-page-size', 'pdf-landscape', 'pdf-margin', 'pdf-header-footer', 'pdf-break-h1', 'pdf-number-headings', 'pdf-header-text'];
+const PDF_FIELDS = ['pdf-page-size', 'pdf-landscape', 'pdf-margin', 'pdf-header-footer', 'pdf-break-h1', 'pdf-number-headings', 'pdf-header-text', 'pdf-cover'];
 
 // The export options are the same on almost every run; remembering them saves
 // re-checking the same three boxes every time.
@@ -471,6 +476,7 @@ function readPdfOptions() {
     headerText: document.getElementById('pdf-header-text').value,
     breakBeforeH1: document.getElementById('pdf-break-h1').checked,
     numberHeadings: document.getElementById('pdf-number-headings').checked,
+    cover: document.getElementById('pdf-cover').checked,
   };
 }
 
@@ -531,6 +537,18 @@ function documentName() {
   return activeTab?.path ? activeTab.path.split(/[\\/]/).pop().replace(/\.[^.]+$/, '') : 'document';
 }
 
+// Une page de garde sans titre n'est qu'une page blanche : sans `title` en
+// front-matter, on n'en met pas.
+function coverHtml() {
+  const title = frontMatter.title;
+  if (!title) return '';
+  const lines = [`<h1>${escapeHtml(title)}</h1>`];
+  if (frontMatter.subtitle) lines.push(`<p class="pdf-cover-subtitle">${escapeHtml(frontMatter.subtitle)}</p>`);
+  const meta = [frontMatter.author, frontMatter.date].filter(Boolean).map(escapeHtml);
+  if (meta.length) lines.push(`<p class="pdf-cover-meta">${meta.join(' · ')}</p>`);
+  return `<section class="pdf-cover">${lines.join('')}</section>`;
+}
+
 // Everything that leaves the app — PDF, print, standalone HTML — is built from
 // the preview itself rather than re-parsed, so what ships is what was on screen:
 // KaTeX already typeset, mermaid already painted as SVG.
@@ -546,7 +564,7 @@ async function buildPrintableHtml(options) {
     body { display:block; margin: 0; } header, #tabs, #sidebar, #editor, #statusbar, .modal { display:none !important; }
     main { display: block; } #preview { padding: 0; overflow: visible; }
     ${paginationCss(options)}
-  </style></head><body><div id="preview" class="markdown-body">${preview.innerHTML}</div></body></html>`;
+  </style></head><body><div id="preview" class="markdown-body">${options.cover ? coverHtml() : ''}${preview.innerHTML}</div></body></html>`;
 }
 
 async function doExportPdf(options) {
