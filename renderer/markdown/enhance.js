@@ -17,15 +17,30 @@ export function enhance(root) {
 // Les slugs dérivés du texte sont stables et suivent la convention GitHub.
 function collectHeadings(root) {
   const used = new Map();
-  return [...root.querySelectorAll('h1, h2, h3, h4, h5, h6')].map(el => {
-    const text = el.textContent.trim();
-    const base = slugify(text) || 'section';
-    const seen = used.get(base) || 0;
-    used.set(base, seen + 1);
-    const id = seen ? `${base}-${seen + 1}` : base;
-    el.id = id;
-    return { id, text, level: Number(el.tagName[1]), el };
-  });
+  return [...root.querySelectorAll('h1, h2, h3, h4, h5, h6')]
+    // Le `<h2>Notes</h2>` de `marked-footnote` et l'intitulé d'un sommaire déjà
+    // posé sont des ornements de l'appareil de notes, pas des titres du
+    // document : ils n'ont leur place ni dans le `[[toc]]` ni dans le panneau
+    // latéral.
+    .filter(el => !el.closest('.footnotes, .md-toc'))
+    .map(el => {
+      const text = el.textContent.trim();
+      const level = Number(el.tagName[1]);
+      // Un identifiant déjà présent est référencé ailleurs — chaque appel de
+      // note porte `aria-describedby="footnote-label"` — et le réécrire ferait
+      // pointer ces renvois dans le vide. On le garde, et on le réserve pour
+      // qu'un titre homonyme plus bas ne le réattribue pas.
+      if (el.id) {
+        used.set(el.id, (used.get(el.id) || 0) + 1);
+        return { id: el.id, text, level, el };
+      }
+      const base = slugify(text) || 'section';
+      const seen = used.get(base) || 0;
+      used.set(base, seen + 1);
+      const id = seen ? `${base}-${seen + 1}` : base;
+      el.id = id;
+      return { id, text, level, el };
+    });
 }
 
 const TOC_MARKER = /^\[\[toc\]\]$/i;
@@ -37,7 +52,17 @@ const TOC_MAX_LEVEL = 3;
 function fillTableOfContents(root, headings) {
   const doc = root.ownerDocument;
   for (const p of [...root.querySelectorAll('p')]) {
-    if (!TOC_MARKER.test(p.textContent.trim())) continue;
+    // `textContent` aplatissait les enfants : `` `[[toc]]` `` et `**[[toc]]**`
+    // passaient, donc on ne pouvait pas documenter la syntaxe sans qu'elle
+    // s'exécute. Le marqueur exige un paragraphe réduit à ce seul texte.
+    if (p.childNodes.length !== 1) continue;
+    const seul = p.firstChild;
+    if (seul.nodeType !== seul.TEXT_NODE) continue;
+    // Et il ne suffit pas : `> [[toc]]` produit un `<blockquote><p>[[toc]]</p>`
+    // dont le paragraphe satisfait déjà la condition ci-dessus. Le sommaire est
+    // une directive de document, elle ne se reconnaît qu'au premier niveau.
+    if (p.parentNode !== root) continue;
+    if (!TOC_MARKER.test(seul.textContent.trim())) continue;
     const wanted = headings.filter(h => h.level <= TOC_MAX_LEVEL);
     if (!wanted.length) {
       p.remove();

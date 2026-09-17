@@ -162,6 +162,25 @@ app.whenReady().then(async () => {
   check('les titres homonymes sont dédoublonnés', s.ids[1] === 'notes' && s.ids[2] === 'notes-2', slugs);
   check('enhance() retourne les titres avec leur niveau', s.returned[0] === 'mise-en-page:1', slugs);
 
+  // `marked-footnote` produit `<h2 id="footnote-label">Notes</h2>`, et chaque
+  // appel de note porte `aria-describedby="footnote-label"`. Une réécriture
+  // inconditionnelle de l'identifiant fait pointer toutes ces références dans
+  // le vide. Et ce `<h2>` n'est pas un titre du document : il n'a rien à faire
+  // dans le sommaire ni dans le panneau latéral.
+  const notes = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = window.md.parse('# Titre\\n\\nTexte[^1].\\n\\n[^1]: la note\\n');
+    const { headings } = window.md.enhance(preview);
+    return JSON.stringify({
+      titres: headings.map(h => h.text),
+      ancre: !!preview.querySelector('#footnote-label'),
+    });
+  })()`);
+  const n = JSON.parse(notes);
+  check('le titre du bloc de notes n’entre pas dans la liste des titres',
+    !n.titres.includes('Notes'), notes);
+  check('l’ancre #footnote-label survit à la passe DOM', n.ancre, notes);
+
   const toc = await win.webContents.executeJavaScript(`(() => {
     const preview = document.getElementById('preview');
     preview.innerHTML = window.md.parse('[[toc]]\\n\\n# Un\\n\\n## Deux\\n\\n#### Quatre\\n');
@@ -186,6 +205,34 @@ app.whenReady().then(async () => {
   })()`);
   const tv = JSON.parse(tocVide);
   check('[[toc]] sans titre ne laisse pas d’encadré vide', !tv.nav && !tv.reste, tocVide);
+
+  // Le marqueur ne doit se déclencher que sur un paragraphe qui n'est QUE le
+  // texte `[[toc]]`. Sinon on ne peut pas documenter la syntaxe sans qu'elle
+  // s'exécute : `\`[[toc]]\``, `**[[toc]]**` et `> [[toc]]` produisaient un
+  // vrai sommaire, parce que `textContent` aplatit les enfants.
+  const tocLitteral = await win.webContents.executeJavaScript(`(() => {
+    const preview = document.getElementById('preview');
+    const cas = {
+      code: '\\\`[[toc]]\\\`\\n\\n# Un\\n\\n## Deux\\n',
+      gras: '**[[toc]]**\\n\\n# Un\\n\\n## Deux\\n',
+      citation: '> [[toc]]\\n\\n# Un\\n\\n## Deux\\n',
+    };
+    const out = {};
+    for (const [nom, src] of Object.entries(cas)) {
+      preview.innerHTML = window.md.parse(src);
+      window.md.enhance(preview);
+      out[nom] = !preview.querySelector('nav.md-toc');
+    }
+    preview.innerHTML = window.md.parse('[[toc]]\\n\\n# Un\\n\\n## Deux\\n');
+    window.md.enhance(preview);
+    out.nuReste = !!preview.querySelector('nav.md-toc');
+    return JSON.stringify(out);
+  })()`);
+  const tl = JSON.parse(tocLitteral);
+  check('[[toc]] entre accents graves reste du code littéral', tl.code, tocLitteral);
+  check('[[toc]] en gras ou en citation ne déclenche pas le sommaire',
+    tl.gras && tl.citation, tocLitteral);
+  check('le marqueur [[toc]] nu déclenche toujours le sommaire', tl.nuReste, tocLitteral);
 
   const figures = await win.webContents.executeJavaScript(`(() => {
     const preview = document.getElementById('preview');
