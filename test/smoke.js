@@ -146,6 +146,25 @@ app.whenReady().then(async () => {
   const pdf = await pdfWin.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
   check('printToPDF produces a PDF', pdf.length > 1000 && pdf.subarray(0, 4).toString() === '%PDF');
   check('KaTeX fonts are embedded in the PDF', /KaTeX_/.test(pdf.toString('latin1')));
+
+  // Les signets et les liens internes ne se lisent que dans le PDF produit.
+  const { destinationPages } = require(path.join(root, 'pdf.js'));
+  const withLinks = await pdfWin.webContents.executeJavaScript(`(() => {
+    document.body.innerHTML = '<nav><a href="#un">un</a> <a href="#deux">deux</a></nav>'
+      + '<h1 id="un">Un</h1><p style="height:1200px">a</p>'
+      + '<h1 id="deux">Deux</h1><p style="height:1200px">b</p>';
+    return true;
+  })()`);
+  const linked = await pdfWin.webContents.printToPDF({
+    printBackground: true, pageSize: 'A4',
+    margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 },
+    generateDocumentOutline: true, generateTaggedPDF: true,
+  });
+  const raw = linked.toString('latin1');
+  check('le PDF porte des signets', /\/Outlines/.test(raw), 'withLinks=' + withLinks);
+  check('les liens internes deviennent des annotations', /\/Subtype\s*\/Link/.test(raw));
+  const destPages = destinationPages(linked);
+  check('chaque ancre est résolue à sa page', destPages.un === 1 && destPages.deux >= 2, JSON.stringify(destPages));
   await fs.unlink(staged).catch(() => {});
 
   // Les identifiants positionnels (`h-0`, `h-1`) se décalent dès qu'un titre est

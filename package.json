@@ -9,7 +9,7 @@
     "build": "npm run bundle && electron-builder",
     "build:mac": "npm run bundle && electron-builder --mac",
     "build:win": "npm run bundle && electron-builder --win",
-    "test": "npm run bundle && node --test test/markdown.test.js && electron test/smoke.js"
+    "test": "npm run bundle && node --test test/markdown.test.js test/pdf.test.js && electron test/smoke.js"
   },
   "author": "",
   "license": "MIT",

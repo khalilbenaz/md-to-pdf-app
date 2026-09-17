@@ -4,6 +4,7 @@ const { existsSync } = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const chokidar = require('chokidar');
+const { pdfOptions, destinationPages, fillTocPages } = require('./pdf.js');
 
 let mainWindow;
 let watcher = null;
@@ -426,16 +427,7 @@ ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => 
   const stagedHtml = await stageHtml(html);
   const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
   await pdfWin.loadFile(stagedHtml);
-  const m = options?.margin ?? 0.5;
-  const buffer = await pdfWin.webContents.printToPDF({
-    printBackground: true,
-    pageSize: options?.pageSize || 'A4',
-    landscape: !!options?.landscape,
-    margins: { top: m, bottom: m, left: m, right: m },
-    displayHeaderFooter: !!options?.headerFooter,
-    headerTemplate: '<div style="font-size:8px;width:100%;text-align:center;color:#666;">' + (options?.headerText || '') + '</div>',
-    footerTemplate: '<div style="font-size:8px;width:100%;text-align:center;color:#666;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>',
-  });
+  const buffer = await pdfWin.webContents.printToPDF(pdfOptions(options));
   await fs.writeFile(filePath, buffer);
   pdfWin.close();
   await fs.unlink(stagedHtml).catch(() => {});
