@@ -50,9 +50,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mac
-          path: |
-            dist/*.dmg
-            dist/*.zip
+          path: dist/*.dmg
 
       # ---------- Windows: NSIS installer ----------
       - name: Build Windows installer
@@ -98,5 +96,12 @@ jobs:
             || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes ""
           find artifacts -type f -print0 | while IFS= read -r -d '' f; do
             echo "Uploading $f"
-            gh release upload "$TAG" "$f" --repo "$GITHUB_REPOSITORY" --clobber
+            for attempt in 1 2 3; do
+              if timeout 600 gh release upload "$TAG" "$f" --repo "$GITHUB_REPOSITORY" --clobber; then
+                break
+              fi
+              echo "Attempt $attempt failed for $f"
+              [ "$attempt" = 3 ] && exit 1
+              sleep 15
+            done
           done
