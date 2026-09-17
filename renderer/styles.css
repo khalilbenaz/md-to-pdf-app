@@ -313,8 +313,14 @@ main.no-sidebar.no-editor { grid-template-columns: 1fr; }
 }
 
 /* ---------- Filigrane ---------- */
+/* Position fixe à l'impression SEULEMENT : Chromium repeint alors un élément
+   fixe sur chaque page — mesuré, le flux de chacune des trois pages d'un
+   document témoin grossit. Le même `fixed` dans le HTML exporté autonome
+   collerait le filigrane au milieu de la fenêtre pendant tout le défilement :
+   un bandeau permanent au lieu d'une marque de page. Hors impression il est
+   donc absolu, posé une fois en tête du document. */
 .pdf-watermark {
-  position: fixed;
+  position: absolute;
   top: 45%;
   left: 0;
   right: 0;
@@ -326,4 +332,7 @@ main.no-sidebar.no-editor { grid-template-columns: 1fr; }
   transform: rotate(-30deg);
   pointer-events: none;
   z-index: 9999;
+}
+@media print {
+  .pdf-watermark { position: fixed; }
 }

@@ -469,6 +469,38 @@ app.whenReady().then(async () => {
   check('il est positionné en fixe, pour se répéter sur chaque page', mq.fixe, marque);
   check('le texte du filigrane est échappé', mq.echappe, marque);
 
+  // Le `position: fixed` du filigrane vaut pour le papier — Chromium repeint
+  // alors l'élément sur chaque page —, pas pour l'écran : dans le HTML exporté
+  // autonome, ouvert dans un navigateur, il restait plaqué au milieu de la
+  // fenêtre pendant tout le défilement. La règle se lit par le CSSOM, pas par
+  // une expression régulière sur la source : c'est la cascade qui compte.
+  const position = await win.webContents.executeJavaScript(`(() => {
+    const el = document.createElement('div');
+    el.className = 'pdf-watermark';
+    document.body.appendChild(el);
+    const ecran = getComputedStyle(el).position;
+    el.remove();
+    let impression = '';
+    for (const sheet of document.styleSheets) {
+      let regles;
+      try { regles = sheet.cssRules; } catch { continue; }
+      for (const regle of regles) {
+        if (!regle.media || regle.conditionText !== 'print') continue;
+        for (const interne of regle.cssRules || []) {
+          if (interne.selectorText
+            && interne.selectorText.includes('.pdf-watermark')
+            && interne.style.position) impression = interne.style.position;
+        }
+      }
+    }
+    return JSON.stringify({ ecran, impression });
+  })()`);
+  const pos = JSON.parse(position);
+  check('le filigrane n’est pas plaqué à la fenêtre hors impression',
+    pos.ecran === 'absolute', position);
+  check('il redevient fixe à l’impression, pour se répéter sur chaque page',
+    pos.impression === 'fixed', position);
+
   // doExportHtml() ouvre une boîte de dialogue d'enregistrement : on ne peut
   // pas l'appeler depuis le test. buildExportHtml() en extrait le gabarit, et
   // doit honorer les mêmes options que buildPrintableHtml() — page de garde
