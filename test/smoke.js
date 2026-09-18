@@ -703,6 +703,20 @@ app.whenReady().then(async () => {
     decalees.length + ' destinations déplacées, ex. '
       + JSON.stringify(decalees.slice(0, 3).map(k => k + ' : ' + avant.dest[k] + '→' + apres.dest[k])));
 
+  // Deux défauts trouvés en REGARDANT un PDF produit, qu'aucune assertion ne
+  // voyait : le repère « saut de page » de l'écran s'imprimait, et le titre de la
+  // page de garde était numéroté, ce qui décalait tous les chapitres.
+  const finitions = await win.webContents.executeJavaScript(`(() => {
+    const css = window.paginationCss({ numberHeadings: true });
+    return JSON.stringify({
+      repereMasque: /#preview \\.page-break::after \\{ content: none; \\}/.test(css),
+      gardeNonNumerotee: /\\.pdf-cover h1 \\{ counter-increment: none; \\}/.test(css),
+    });
+  })()`);
+  const fin = JSON.parse(finitions);
+  check('le repère de saut de page ne s’imprime pas', fin.repereMasque, finitions);
+  check('le titre de la page de garde n’est pas numéroté', fin.gardeNonNumerotee, finitions);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   app.exit(failed.length ? 1 : 0);

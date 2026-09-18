@@ -512,6 +512,11 @@ function paginationCss(options = {}) {
     tr, li { break-inside: avoid; }
     p { orphans: 3; widows: 3; }
     .page-break { break-after: page; height: 0; }
+    /* Le repère « saut de page » est une aide à l'écran : styles.css lui donne un
+       trait pointillé et une étiquette, scopés sur l'identifiant preview, que le
+       document imprimable porte aussi. Sur papier, le saut se voit de lui-même. */
+    #preview .page-break { border-top: 0; margin: 0; }
+    #preview .page-break::after { content: none; }
     /* Le sommaire du document exporté se présente à l'identique, rempli ou non.
        styles.css bascule le \`li\` de \`list-item\` à \`flex\` avec \`:has()\` au moment
        même où le numéro arrive : le lien devient alors un élément flexible qui
@@ -544,7 +549,11 @@ function paginationCss(options = {}) {
     .markdown-body h1::before { content: counter(h1) '. '; }
     .markdown-body h2::before { content: counter(h1) '.' counter(h2) '. '; }
     .markdown-body h3::before { content: counter(h1) '.' counter(h2) '.' counter(h3) '. '; }
-    .markdown-body h4::before { content: counter(h1) '.' counter(h2) '.' counter(h3) '.' counter(h4) '. '; }` : ''}
+    .markdown-body h4::before { content: counter(h1) '.' counter(h2) '.' counter(h3) '.' counter(h4) '. '; }
+    /* Le titre de la page de garde n'est pas un chapitre : le numéroter le
+       compterait, et décalerait tous les chapitres suivants d'un rang. */
+    .markdown-body .pdf-cover h1 { counter-increment: none; }
+    .markdown-body .pdf-cover h1::before { content: none; }` : ''}
   `;
 }
 
