@@ -1232,6 +1232,34 @@ app.whenReady().then(async () => {
   check('I5 — le registre affiche Ctrl (pas Cmd) hors macOS',
     rw.plateforme === 'win32' && rw.raccourci === 'Ctrl+S', raccourcisWin32);
 
+  // ── I6 : en mode focus, l'en-tête (où vit #file-name) est masqué. Un
+  // utilisateur qui lance un lot en mode focus avec un onglet modifié ne
+  // voyait donc ni sélecteur ni refus. Le message doit rester visible via un
+  // conteneur que le mode focus ne masque pas.
+  const muetEnFocus = await win.webContents.executeJavaScript(`(async () => {
+    window.commands.run('vue:focus');
+    const t = window.newTab({ content: '# Modifié en focus\\n' });
+    t.dirty = true;
+    await window.exporterLot();
+    const notif = document.getElementById('lot-notification');
+    const resultat = {
+      focusActif: document.body.classList.contains('focus'),
+      enTeteMasquee: getComputedStyle(document.querySelector('header')).display === 'none',
+      notifVisible: !notif.classList.contains('hidden')
+        && getComputedStyle(notif).display !== 'none',
+      notifTexte: notif.textContent,
+    };
+    t.dirty = false;
+    window.closeTab(t);
+    window.commands.run('vue:focus');
+    return JSON.stringify(resultat);
+  })()`);
+  const mf = JSON.parse(muetEnFocus);
+  check('I6 — l’en-tête est bien masquée en mode focus (condition du défaut)',
+    mf.focusActif && mf.enTeteMasquee, muetEnFocus);
+  check('I6 — le message de refus du lot reste visible en mode focus',
+    mf.notifVisible && /enregistr/i.test(mf.notifTexte), muetEnFocus);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   clearTimeout(chienDeGarde);

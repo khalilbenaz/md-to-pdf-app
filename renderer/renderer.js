@@ -21,6 +21,17 @@ const fileNameEl = document.getElementById('file-name');
 const statsEl = document.getElementById('stats');
 const cursorEl = document.getElementById('cursor-pos');
 const dirtyEl = document.getElementById('dirty-indicator');
+const lotNotification = document.getElementById('lot-notification');
+
+// I6 : l'en-tête (où vit fileNameEl) est masqué par le mode focus. Un lot
+// lancé en mode focus n'affichait donc rien — ni sélecteur, ni refus. Les
+// messages du lot passent par ce conteneur en plus de l'en-tête, jamais
+// masqué par le mode focus.
+function annoncerLot(message) {
+  fileNameEl.textContent = message;
+  lotNotification.textContent = message;
+  lotNotification.classList.remove('hidden');
+}
 
 // ---------- State ----------
 let tabs = [];
@@ -904,7 +915,7 @@ let tabDuLot = null;
 
 async function exporterLot() {
   if (lotEnCours) {
-    fileNameEl.textContent = 'Un export par lot est déjà en cours';
+    annoncerLot('Un export par lot est déjà en cours');
     return;
   }
   lotEnCours = true;
@@ -914,14 +925,14 @@ async function exporterLot() {
     // le PDF produit. On refuse donc de démarrer plutôt que de diverger
     // silencieusement entre ce que l'utilisateur voit et ce qui est écrit.
     if (tabs.some((t) => t.dirty)) {
-      fileNameEl.textContent = 'Enregistrez les modifications en cours avant un export par lot';
+      annoncerLot('Enregistrez les modifications en cours avant un export par lot');
       return;
     }
     const choix = await window.api.listMarkdown();
     if (!choix) return;
     const { dossier, fichiers } = choix;
     if (!fichiers.length) {
-      fileNameEl.textContent = 'Aucun fichier markdown dans ce dossier';
+      annoncerLot('Aucun fichier markdown dans ce dossier');
       return;
     }
     // Un chemin Windows est reconnaissable à son antislash ; sinon, `/`.
@@ -941,7 +952,7 @@ async function exporterLot() {
     let premierEchec = null;
     try {
       for (const [i, nom] of aTraiter.entries()) {
-        fileNameEl.textContent = `Export ${i + 1}/${aTraiter.length} : ${nom}`;
+        annoncerLot(`Export ${i + 1}/${aTraiter.length} : ${nom}`);
         try {
           const chemin = dossier + separateur + nom;
           const { content } = await window.api.readFile(chemin);
@@ -979,13 +990,13 @@ async function exporterLot() {
 
     const dossierNom = dossier.split(separateur).pop();
     if (!remplaces && !echecs && !conflits) {
-      fileNameEl.textContent = `${faits} PDF écrits dans ${dossierNom}`;
+      annoncerLot(`${faits} PDF écrits dans ${dossierNom}`);
     } else {
       const morceaux = [`${faits} PDF écrits`];
       if (remplaces) morceaux.push(`${remplaces} remplacés`);
       if (echecs) morceaux.push(`${echecs} en échec (dont ${premierEchec})`);
       if (conflits) morceaux.push(`${conflits} ignorés (conflit de nom)`);
-      fileNameEl.textContent = morceaux.join(', ');
+      annoncerLot(morceaux.join(', '));
     }
   } finally {
     lotEnCours = false;

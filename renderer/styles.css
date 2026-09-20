@@ -410,3 +410,25 @@ body.focus #preview {
   margin: 0 auto;
   padding: 3rem 1.5rem;
 }
+
+/* ---------- Notification du lot ---------- */
+/* Volontairement en dehors de tout ce que body.focus masque : un export par
+   lot lancé en mode focus doit rester visible (refus, progression, résumé). */
+#lot-notification {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--header-bg);
+  color: var(--header-fg);
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  max-width: 80vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  z-index: 2000;
+}
+#lot-notification.hidden { display: none; }

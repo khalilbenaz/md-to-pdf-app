@@ -75,7 +75,7 @@ Construit avec [Electron](https://www.electronjs.org/) + [CodeMirror 6](https://
 - **Options mémorisées** d'un export à l'autre
 - **Impression directe** (`Cmd/Ctrl+P`) vers l'imprimante système
 - **Export HTML** autonome : styles **et images** embarqués (data URI), le fichier reste lisible une fois envoyé à quelqu'un d'autre
-- **Export par lot** : un dossier entier converti en PDF, un fichier à la fois, chaque PDF écrit à côté de son source. L'export refuse de démarrer si un onglet porte des modifications non enregistrées, pour ne jamais produire un PDF divergent de ce qui est affiché. Le message final compte les PDF écrits, ceux qui remplaçaient un PDF existant, et signale en conflit tout fichier dont le PDF cible était déjà pris par un autre (par exemple `note.md` et `note.markdown` visant le même `note.pdf` : le second est ignoré). Sa progression s'affiche dans la barre d'outils, donc elle reste invisible si l'export est lancé pendant le mode focus, qui la masque
+- **Export par lot** : un dossier entier converti en PDF, un fichier à la fois, chaque PDF écrit à côté de son source. L'export refuse de démarrer si un onglet porte des modifications non enregistrées, pour ne jamais produire un PDF divergent de ce qui est affiché. Le message final compte les PDF écrits, ceux qui remplaçaient un PDF existant, et signale en conflit tout fichier dont le PDF cible était déjà pris par un autre (par exemple `note.md` et `note.markdown` visant le même `note.pdf` : le second est ignoré). Sa progression s'affiche dans la barre d'outils et dans une notification dédiée qui reste visible même en mode focus
 - Les exports reprennent l'aperçu tel quel — KaTeX déjà composé, diagrammes déjà rendus en SVG
 
 ### Sécurité & confidentialité

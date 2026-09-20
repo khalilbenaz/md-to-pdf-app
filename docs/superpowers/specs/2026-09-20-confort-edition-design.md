@@ -106,9 +106,13 @@ d'export existant, y compris la double passe du sommaire.
 
 Chaque document doit être rendu dans l'aperçu pour produire son HTML : le lot
 boucle donc côté renderer, un fichier après l'autre, et rend la main au
-processus principal pour chaque écriture. La barre d'état affiche la
-progression. Un fichier en échec n'interrompt pas le lot : il est compté et
-signalé à la fin.
+processus principal pour chaque écriture. La progression s'affiche dans
+l'en-tête (`#file-name`), pas dans la barre d'état — et un conteneur dédié
+(`#lot-notification`), jamais masqué par le mode focus, reprend le même
+message, sinon un lot lancé en mode focus (l'en-tête étant alors masquée)
+ne montre ni sélecteur ni refus. Un fichier en échec n'interrompt pas le
+lot : il est compté, journalisé en console (fichier + erreur), et le
+premier fichier fautif est nommé dans le message final.
 
 ## Périmètre
 
@@ -125,5 +129,5 @@ que sur un ratio ; export par lot récursif dans les sous-dossiers.
 |---|---|
 | Neutraliser `app.whenReady` empêche aussi le test de démarrer | Le test attend la vraie promesse avant de charger `main.js`, et n'intercepte que les rappels que `main.js` enregistre ensuite |
 | Le chien de garde masque un blocage réel en le transformant en échec | Il sort en code 1 avec un message explicite, jamais en succès |
-| L'export par lot bloque l'interface sur un gros dossier | Un fichier à la fois, progression affichée, annulable en fermant la fenêtre |
+| L'export par lot bloque l'interface sur un gros dossier | Un fichier à la fois, progression affichée (en-tête + `#lot-notification`, visible même en mode focus). **Non paré** : « annulable en fermant la fenêtre » n'est pas une parade — fermer la fenêtre pendant un lot ne l'annule pas proprement, ça tue l'application ; il n'existe aucune annulation réelle |
 | La palette double des raccourcis existants | Non paré : le registre n'est pas la source unique (voir section B), rien ne détecte aujourd'hui un doublon entre le libellé affiché dans la palette et un raccourci réellement actif ailleurs |

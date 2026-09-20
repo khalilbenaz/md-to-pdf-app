@@ -59,6 +59,12 @@
     <span id="dirty-indicator"></span>
   </footer>
 
+  <!-- Messages du lot : l'en-tête (où vit #file-name) est masqué par le mode
+       focus, donc un message qui n'y passerait que par là serait invisible
+       (refus, progression, résumé) pendant un export lancé en mode focus.
+       Ce conteneur n'est jamais masqué par body.focus. -->
+  <div id="lot-notification" class="hidden"></div>
+
   <div id="pdf-modal" class="modal hidden">
     <div class="modal-content">
       <h3>Options d'export PDF</h3>
