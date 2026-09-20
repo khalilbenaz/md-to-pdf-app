@@ -544,6 +544,7 @@ app.whenReady().then(async () => {
   const vraiHandle = ipcMain.handle.bind(ipcMain);
   const vraiWhenReady = app.whenReady.bind(app);
   const vraiVerrou = app.requestSingleInstanceLock.bind(app);
+  const vraiOn = app.on.bind(app);
 
   ipcMain.handle = (channel, fn) => { handlers[channel] = fn; try { vraiHandle(channel, fn); } catch {} };
   // `main.js` enregistre ses handlers au chargement du module, mais accroche
@@ -554,16 +555,37 @@ app.whenReady().then(async () => {
   // Sans ça, `npm test` lancé pendant que l'application est ouverte perd le
   // verrou, `main.js` appelle `app.quit()` et la suite s'arrête en silence.
   app.requestSingleInstanceLock = () => true;
+  // I1 : `app.on` n'était pas neutralisé. Le verrou étant stubé à vrai,
+  // `main.js` enregistre pour de vrai `window-all-closed`, qui appelle
+  // `app.quit()` sur Linux et Windows — deux des trois OS de la CI — dès que
+  // la dernière fenêtre se ferme. Une vérification qui ferme transitoirement
+  // la dernière fenêtre ferait alors sortir `npm test` en code 0 sur une
+  // suite tronquée, sans le moindre récapitulatif. On capture les
+  // écouteurs sans jamais les poser pour de vrai, comme pour `ipcMain.handle`
+  // côté enregistrement, restauré ensuite comme les trois autres.
+  const ecouteursApp = {};
+  // Electron pose lui-même, dès le démarrage du processus, un écouteur
+  // interne par défaut sur `window-all-closed` (qui ne quitte que si c'est le
+  // SEUL écouteur restant) : le compte de référence n'est donc pas zéro, mais
+  // celui d'avant le chargement de `main.js`.
+  const ecouteursReelsAvant = app.listenerCount('window-all-closed');
+  app.on = (evenement, fn) => { (ecouteursApp[evenement] = ecouteursApp[evenement] || []).push(fn); return app; };
 
   require(path.join(root, 'main.js'));
 
   ipcMain.handle = vraiHandle;
   app.whenReady = vraiWhenReady;
   app.requestSingleInstanceLock = vraiVerrou;
+  app.on = vraiOn;
   await new Promise((r) => setTimeout(r, 300));
   check('charger main.js n’ouvre aucune fenêtre d’application',
     BrowserWindow.getAllWindows().length === fenetresAvantChargement,
     `avant ${fenetresAvantChargement}, après ${BrowserWindow.getAllWindows().length}`);
+  check('I1 — charger main.js n’attache aucun vrai écouteur window-all-closed (app.on neutralisé)',
+    app.listenerCount('window-all-closed') === ecouteursReelsAvant,
+    `avant=${ecouteursReelsAvant} après=${app.listenerCount('window-all-closed')}`);
+  check('I1 — l’écouteur window-all-closed de main.js a bien été intercepté par le test',
+    (ecouteursApp['window-all-closed'] || []).length > 0, JSON.stringify(Object.keys(ecouteursApp)));
   check('les handlers d’export et d’impression sont joignables',
     typeof handlers['file:print'] === 'function' && typeof handlers['file:export-pdf'] === 'function',
     Object.keys(handlers).join(', '));
