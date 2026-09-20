@@ -862,75 +862,94 @@ function detecterConflitsLot(fichiers) {
 // Il est fermé à la fin, y compris en cas d'erreur, et la main revient à
 // l'onglet d'origine. Un fichier en échec n'interrompt pas le lot, il est
 // compté.
+//
+// Réentrance : rien dans l'interface n'empêchait un second appel pendant
+// qu'un lot tournait déjà. L'onglet de travail et `activeTab` sont partagés
+// par tout ce que la boucle appelle (buildPrintableHtml() lit
+// `preview.innerHTML` après plusieurs `await`) : deux lots entrelacés se
+// marchent dessus et un PDF peut recevoir le contenu d'un autre fichier,
+// sans qu'aucun compteur ne le voie. Un second appel doit donc refuser de
+// démarrer, et le dire.
+let lotEnCours = false;
+
 async function exporterLot() {
-  // Le lot relit chaque fichier depuis le disque : des modifications non
-  // enregistrées dans un onglet quelconque seraient ignorées en silence par
-  // le PDF produit. On refuse donc de démarrer plutôt que de diverger
-  // silencieusement entre ce que l'utilisateur voit et ce qui est écrit.
-  if (tabs.some((t) => t.dirty)) {
-    fileNameEl.textContent = 'Enregistrez les modifications en cours avant un export par lot';
+  if (lotEnCours) {
+    fileNameEl.textContent = 'Un export par lot est déjà en cours';
     return;
   }
-  const choix = await window.api.listMarkdown();
-  if (!choix) return;
-  const { dossier, fichiers } = choix;
-  if (!fichiers.length) {
-    fileNameEl.textContent = 'Aucun fichier markdown dans ce dossier';
-    return;
-  }
-  // Un chemin Windows est reconnaissable à son antislash ; sinon, `/`.
-  const separateur = dossier.includes('\\') ? '\\' : '/';
-  const { aTraiter, conflits } = detecterConflitsLot(fichiers);
-  const options = readPdfOptions();
-  const tabOrigine = activeTab;
-  const tabTravail = newTab({});
-  let faits = 0;
-  let echecs = 0;
-  let remplaces = 0;
+  lotEnCours = true;
   try {
-    for (const [i, nom] of aTraiter.entries()) {
-      fileNameEl.textContent = `Export ${i + 1}/${aTraiter.length} : ${nom}`;
-      try {
-        const chemin = dossier + separateur + nom;
-        const { content } = await window.api.readFile(chemin);
-        tabTravail.path = chemin;
-        tabTravail.content = content;
-        setActiveTab(tabTravail);
-        const html = await buildPrintableHtml(options);
-        const resultat = await window.api.exportPdfTo({
-          html, chemin: chemin.replace(/\.[^.]+$/, '.pdf'), options,
-        });
-        if (resultat && resultat.remplace) remplaces += 1;
-        faits += 1;
-      } catch {
-        echecs += 1;
+    // Le lot relit chaque fichier depuis le disque : des modifications non
+    // enregistrées dans un onglet quelconque seraient ignorées en silence par
+    // le PDF produit. On refuse donc de démarrer plutôt que de diverger
+    // silencieusement entre ce que l'utilisateur voit et ce qui est écrit.
+    if (tabs.some((t) => t.dirty)) {
+      fileNameEl.textContent = 'Enregistrez les modifications en cours avant un export par lot';
+      return;
+    }
+    const choix = await window.api.listMarkdown();
+    if (!choix) return;
+    const { dossier, fichiers } = choix;
+    if (!fichiers.length) {
+      fileNameEl.textContent = 'Aucun fichier markdown dans ce dossier';
+      return;
+    }
+    // Un chemin Windows est reconnaissable à son antislash ; sinon, `/`.
+    const separateur = dossier.includes('\\') ? '\\' : '/';
+    const { aTraiter, conflits } = detecterConflitsLot(fichiers);
+    const options = readPdfOptions();
+    const tabOrigine = activeTab;
+    const tabTravail = newTab({});
+    let faits = 0;
+    let echecs = 0;
+    let remplaces = 0;
+    try {
+      for (const [i, nom] of aTraiter.entries()) {
+        fileNameEl.textContent = `Export ${i + 1}/${aTraiter.length} : ${nom}`;
+        try {
+          const chemin = dossier + separateur + nom;
+          const { content } = await window.api.readFile(chemin);
+          tabTravail.path = chemin;
+          tabTravail.content = content;
+          setActiveTab(tabTravail);
+          const html = await buildPrintableHtml(options);
+          const resultat = await window.api.exportPdfTo({
+            html, chemin: chemin.replace(/\.[^.]+$/, '.pdf'), options,
+          });
+          if (resultat && resultat.remplace) remplaces += 1;
+          faits += 1;
+        } catch {
+          echecs += 1;
+        }
+      }
+    } finally {
+      const i = tabs.indexOf(tabTravail);
+      if (i !== -1) tabs.splice(i, 1);
+      if (tabOrigine && tabs.includes(tabOrigine)) {
+        setActiveTab(tabOrigine);
+      } else if (tabs.length) {
+        setActiveTab(tabs[tabs.length - 1]);
+      } else {
+        activeTab = null;
+        suppressChange = true; editor.setValue(''); suppressChange = false;
+        preview.innerHTML = '';
+        fileNameEl.textContent = 'Sans titre';
+        renderTabs();
       }
     }
-  } finally {
-    const i = tabs.indexOf(tabTravail);
-    if (i !== -1) tabs.splice(i, 1);
-    if (tabOrigine && tabs.includes(tabOrigine)) {
-      setActiveTab(tabOrigine);
-    } else if (tabs.length) {
-      setActiveTab(tabs[tabs.length - 1]);
-    } else {
-      activeTab = null;
-      suppressChange = true; editor.setValue(''); suppressChange = false;
-      preview.innerHTML = '';
-      fileNameEl.textContent = 'Sans titre';
-      renderTabs();
-    }
-  }
 
-  const dossierNom = dossier.split(separateur).pop();
-  if (!remplaces && !echecs && !conflits) {
-    fileNameEl.textContent = `${faits} PDF écrits dans ${dossierNom}`;
-  } else {
-    const morceaux = [`${faits} PDF écrits`];
-    if (remplaces) morceaux.push(`${remplaces} remplacés`);
-    if (echecs) morceaux.push(`${echecs} en échec`);
-    if (conflits) morceaux.push(`${conflits} ignorés (conflit de nom)`);
-    fileNameEl.textContent = morceaux.join(', ');
+    const dossierNom = dossier.split(separateur).pop();
+    if (!remplaces && !echecs && !conflits) {
+      fileNameEl.textContent = `${faits} PDF écrits dans ${dossierNom}`;
+    } else {
+      const morceaux = [`${faits} PDF écrits`];
+      if (remplaces) morceaux.push(`${remplaces} remplacés`);
+      if (echecs) morceaux.push(`${echecs} en échec`);
+      if (conflits) morceaux.push(`${conflits} ignorés (conflit de nom)`);
+      fileNameEl.textContent = morceaux.join(', ');
+    }
+  } finally {
+    lotEnCours = false;
   }
 }
 

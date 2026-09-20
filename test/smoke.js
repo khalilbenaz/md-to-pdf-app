@@ -953,6 +953,33 @@ app.whenReady().then(async () => {
   check('C1 — en mode focus, le volet code reste masqué même s’il était ouvert',
     !gf.editorVisible, geometrieFocus);
 
+  // ── C2 : l'export par lot doit refuser un second appel pendant qu'un
+  // premier tourne. Sans garde, les deux boucles s'entrelacent sur `preview`
+  // et `activeTab` — buildPrintableHtml() relit preview.innerHTML après
+  // plusieurs `await`, un PDF peut recevoir le contenu d'un autre fichier —
+  // et rien ne le détecte. Le refus doit avoir lieu avant tout `await`
+  // (avant même la boîte de dialogue du dossier), donc être visible dès
+  // l'appel synchrone du second lot, sans attendre sa résolution.
+  const lotDir3 = path.join(app.getPath('temp'), `mdtopdf-lot3-${Date.now()}`);
+  await fs.mkdir(lotDir3, { recursive: true });
+  await fs.writeFile(path.join(lotDir3, 'x.md'), '# X\n\nTexte.\n', 'utf8');
+  await fs.writeFile(path.join(lotDir3, 'y.md'), '# Y\n\nTexte.\n', 'utf8');
+  const vraiOpenDialog2 = dialog.showOpenDialog;
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [lotDir3] });
+  const concurrence = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '# Origine 2\\n' });
+    const p1 = window.exporterLot();
+    const p2 = window.exporterLot();
+    const messageImmediat = document.getElementById('file-name').textContent;
+    await Promise.all([p1, p2]);
+    return JSON.stringify({ messageImmediat });
+  })()`);
+  dialog.showOpenDialog = vraiOpenDialog2;
+  const cc = JSON.parse(concurrence);
+  check('C2 — un second export par lot pendant qu’un premier tourne est refusé, et le dit',
+    /déjà en cours/i.test(cc.messageImmediat), concurrence);
+  await fs.rm(lotDir3, { recursive: true, force: true });
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   clearTimeout(chienDeGarde);
