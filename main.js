@@ -482,6 +482,10 @@ ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => 
 // l'aperçu pour produire son HTML — et revient ici pour chaque écriture. D'où
 // un handler qui écrit à un chemin donné, sans boîte de dialogue.
 ipcMain.handle('file:export-pdf-to', async (_e, { html, chemin, options }) => {
+  // Pas de boîte d'enregistrement ici pour demander confirmation : on note
+  // donc nous-mêmes si le fichier existait déjà, pour que l'appelant (le lot,
+  // côté renderer) puisse le signaler plutôt que d'écraser en silence.
+  const remplace = existsSync(chemin);
   const stagedHtml = await stageHtml(html);
   const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
   let restaged = null;
@@ -497,7 +501,7 @@ ipcMain.handle('file:export-pdf-to', async (_e, { html, chemin, options }) => {
       }
     }
     await fs.writeFile(chemin, buffer);
-    return { chemin };
+    return { chemin, remplace };
   } finally {
     await fs.unlink(stagedHtml).catch(() => {});
     if (restaged) await fs.unlink(restaged).catch(() => {});

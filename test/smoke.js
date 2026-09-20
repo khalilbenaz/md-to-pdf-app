@@ -857,7 +857,65 @@ app.whenReady().then(async () => {
   const commandeLot = await win.webContents.executeJavaScript(
     `window.commands.all().some(c => c.id === 'export:lot')`);
   check('l’export par lot est une commande', commandeLot === true);
+
+  // Revue : le processus principal doit savoir dire si l'écriture directe a
+  // remplacé un PDF existant, pour que le lot puisse le compter.
+  const reecrit = await handlers['file:export-pdf-to'](null, { html: htmlLot, chemin: cible, options: {} });
+  check('l’écriture directe signale le remplacement d’un PDF existant', reecrit && reecrit.remplace === true, JSON.stringify(reecrit));
   await fs.rm(lotDir, { recursive: true, force: true });
+
+  // ── Export par lot : revue — un seul onglet, refus si modifs non
+  // enregistrées, collision de noms détectée ──────────────────────────────
+  // Un onglet modifié interdit de démarrer, et sans solliciter la moindre
+  // boîte de dialogue : le refus a lieu avant l'appel à `listMarkdown`.
+  const refusDirty = await win.webContents.executeJavaScript(`(async () => {
+    const t = window.newTab({ content: '# Modifié\\n' });
+    t.dirty = true;
+    await window.exporterLot();
+    const message = document.getElementById('file-name').textContent;
+    t.dirty = false;
+    window.closeTab(t);
+    return message;
+  })()`);
+  check('le lot refuse de démarrer quand un onglet est modifié', /enregistr/i.test(refusDirty), refusDirty);
+
+  // nom.md et nom.markdown viseraient le même PDF : le second doit être
+  // ignoré et compté, pas écraser le premier en silence.
+  const conflit = await win.webContents.executeJavaScript(`(() => {
+    return JSON.stringify(window.detecterConflitsLot(['deux.markdown', 'deux.md', 'un.md']));
+  })()`);
+  const rc = JSON.parse(conflit);
+  check('la collision de noms est détectée',
+    rc.conflits === 1 && rc.aTraiter.length === 2 && rc.aTraiter.includes('un.md') && rc.aTraiter.includes('deux.markdown'),
+    conflit);
+
+  // Un lot ne doit laisser ni onglet supplémentaire ni onglet en moins
+  // derrière lui : un seul onglet de travail est créé, puis refermé.
+  const lotDir2 = path.join(app.getPath('temp'), `mdtopdf-lot2-${Date.now()}`);
+  await fs.mkdir(lotDir2, { recursive: true });
+  await fs.writeFile(path.join(lotDir2, 'a.md'), '# A\n\nTexte.\n', 'utf8');
+  await fs.writeFile(path.join(lotDir2, 'b.md'), '# B\n\nTexte.\n', 'utf8');
+  const vraiOpenDialog = dialog.showOpenDialog;
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [lotDir2] });
+  // `file:read` est stubbé à `() => null` en tête de ce fichier pour faire
+  // taire le bruit des canaux non testés — mais `exporterLot()` en a besoin
+  // ici pour de vrai. On substitue donc la référence capturée du handler réel
+  // de `main.js`, le temps de ce test.
+  ipcMain.removeHandler('file:read');
+  ipcMain.handle('file:read', handlers['file:read']);
+  const avantApres = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '# Origine\\n' });
+    const avant = document.querySelectorAll('#tabs .tab').length;
+    await window.exporterLot();
+    const apres = document.querySelectorAll('#tabs .tab').length;
+    const resume = document.getElementById('file-name').textContent;
+    return JSON.stringify({ avant, apres, resume });
+  })()`);
+  dialog.showOpenDialog = vraiOpenDialog;
+  const aa = JSON.parse(avantApres);
+  check('le nombre d’onglets est le même avant et après un lot', aa.avant === aa.apres, avantApres);
+  check('le message final résume le lot réellement traité', /^2 PDF écrits dans /.test(aa.resume), avantApres);
+  await fs.rm(lotDir2, { recursive: true, force: true });
 
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);

@@ -836,9 +836,41 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---------- Export par lot ----------
-// Un fichier à la fois : chaque document doit passer par l'aperçu pour
-// produire son HTML. Un échec n'interrompt pas le lot, il est compté.
+// Deux extensions markdown différentes peuvent viser le même PDF (nom.md et
+// nom.markdown) : la seconde écraserait la première en silence, et le message
+// final mentirait sur le nombre de PDF réellement écrits. On détecte la
+// collision avant de commencer — le premier nom rencontré gagne, les
+// suivants visant le même PDF sont ignorés et comptés comme conflits.
+function detecterConflitsLot(fichiers) {
+  const cibles = new Set();
+  const aTraiter = [];
+  let conflits = 0;
+  for (const nom of fichiers) {
+    const pdf = nom.replace(/\.[^.]+$/, '.pdf');
+    if (cibles.has(pdf)) { conflits += 1; continue; }
+    cibles.add(pdf);
+    aTraiter.push(nom);
+  }
+  return { aTraiter, conflits };
+}
+
+// Un seul onglet de travail pour tout le lot, réutilisé pour chaque fichier
+// (son `path` et son contenu sont tenus à jour, dont `resolveLocalImages()`
+// et `baseTag()` ont besoin pour résoudre les images relatives au bon
+// dossier) — sinon un dossier de trente fichiers laisserait trente onglets
+// derrière lui, l'onglet actif final noyant le document de l'utilisateur.
+// Il est fermé à la fin, y compris en cas d'erreur, et la main revient à
+// l'onglet d'origine. Un fichier en échec n'interrompt pas le lot, il est
+// compté.
 async function exporterLot() {
+  // Le lot relit chaque fichier depuis le disque : des modifications non
+  // enregistrées dans un onglet quelconque seraient ignorées en silence par
+  // le PDF produit. On refuse donc de démarrer plutôt que de diverger
+  // silencieusement entre ce que l'utilisateur voit et ce qui est écrit.
+  if (tabs.some((t) => t.dirty)) {
+    fileNameEl.textContent = 'Enregistrez les modifications en cours avant un export par lot';
+    return;
+  }
   const choix = await window.api.listMarkdown();
   if (!choix) return;
   const { dossier, fichiers } = choix;
@@ -846,25 +878,60 @@ async function exporterLot() {
     fileNameEl.textContent = 'Aucun fichier markdown dans ce dossier';
     return;
   }
+  // Un chemin Windows est reconnaissable à son antislash ; sinon, `/`.
+  const separateur = dossier.includes('\\') ? '\\' : '/';
+  const { aTraiter, conflits } = detecterConflitsLot(fichiers);
   const options = readPdfOptions();
+  const tabOrigine = activeTab;
+  const tabTravail = newTab({});
   let faits = 0;
   let echecs = 0;
-  for (const [i, nom] of fichiers.entries()) {
-    fileNameEl.textContent = `Export ${i + 1}/${fichiers.length} : ${nom}`;
-    try {
-      const chemin = dossier + '/' + nom;
-      const { content } = await window.api.readFile(chemin);
-      newTab({ path: chemin, content });
-      const html = await buildPrintableHtml(options);
-      await window.api.exportPdfTo({ html, chemin: chemin.replace(/\.[^.]+$/, '.pdf'), options });
-      faits += 1;
-    } catch {
-      echecs += 1;
+  let remplaces = 0;
+  try {
+    for (const [i, nom] of aTraiter.entries()) {
+      fileNameEl.textContent = `Export ${i + 1}/${aTraiter.length} : ${nom}`;
+      try {
+        const chemin = dossier + separateur + nom;
+        const { content } = await window.api.readFile(chemin);
+        tabTravail.path = chemin;
+        tabTravail.content = content;
+        setActiveTab(tabTravail);
+        const html = await buildPrintableHtml(options);
+        const resultat = await window.api.exportPdfTo({
+          html, chemin: chemin.replace(/\.[^.]+$/, '.pdf'), options,
+        });
+        if (resultat && resultat.remplace) remplaces += 1;
+        faits += 1;
+      } catch {
+        echecs += 1;
+      }
+    }
+  } finally {
+    const i = tabs.indexOf(tabTravail);
+    if (i !== -1) tabs.splice(i, 1);
+    if (tabOrigine && tabs.includes(tabOrigine)) {
+      setActiveTab(tabOrigine);
+    } else if (tabs.length) {
+      setActiveTab(tabs[tabs.length - 1]);
+    } else {
+      activeTab = null;
+      suppressChange = true; editor.setValue(''); suppressChange = false;
+      preview.innerHTML = '';
+      fileNameEl.textContent = 'Sans titre';
+      renderTabs();
     }
   }
-  fileNameEl.textContent = echecs
-    ? `${faits} PDF écrits, ${echecs} en échec`
-    : `${faits} PDF écrits dans ${dossier.split('/').pop()}`;
+
+  const dossierNom = dossier.split(separateur).pop();
+  if (!remplaces && !echecs && !conflits) {
+    fileNameEl.textContent = `${faits} PDF écrits dans ${dossierNom}`;
+  } else {
+    const morceaux = [`${faits} PDF écrits`];
+    if (remplaces) morceaux.push(`${remplaces} remplacés`);
+    if (echecs) morceaux.push(`${echecs} en échec`);
+    if (conflits) morceaux.push(`${conflits} ignorés (conflit de nom)`);
+    fileNameEl.textContent = morceaux.join(', ');
+  }
 }
 
 window.commands.register({
