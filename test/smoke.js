@@ -1114,6 +1114,42 @@ app.whenReady().then(async () => {
     su.ongletsApresLot === su.avantOnglets, suspension);
   await fs.rm(lotDir4, { recursive: true, force: true });
 
+  // ── I3 : la modale PDF est la couche la plus interne et doit avoir son
+  // propre gestionnaire Échap, appliqué avant les couches plus externes — en
+  // particulier avant que le mode focus ne se ferme, ce qui ferait
+  // réapparaître l'habillage derrière une modale restée ouverte. Cas à trois
+  // couches : palette ouverte sur une modale PDF ouverte sur le mode focus ;
+  // chaque Échap ne doit fermer que la couche la plus interne encore ouverte.
+  const troisCouches = await win.webContents.executeJavaScript(`(() => {
+    window.commands.run('vue:focus');
+    window.showPdfModal();
+    window.palette.ouvrir();
+    const modal = document.getElementById('pdf-modal');
+    const etat = () => ({
+      paletteOuverte: !document.getElementById('palette').classList.contains('hidden'),
+      modalOuverte: !modal.classList.contains('hidden'),
+      focusActif: document.body.classList.contains('focus'),
+    });
+    const avant = etat();
+    document.getElementById('palette-requete').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const apresUn = etat();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const apresDeux = etat();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const apresTrois = etat();
+    return JSON.stringify({ avant, apresUn, apresDeux, apresTrois });
+  })()`);
+  const tc = JSON.parse(troisCouches);
+  check('I3 — les trois couches sont bien ouvertes avant le premier Échap',
+    tc.avant.paletteOuverte && tc.avant.modalOuverte && tc.avant.focusActif, troisCouches);
+  check('I3 — le premier Échap ne ferme que la palette',
+    !tc.apresUn.paletteOuverte && tc.apresUn.modalOuverte && tc.apresUn.focusActif, troisCouches);
+  check('I3 — le deuxième Échap ferme la modale PDF, pas le mode focus',
+    !tc.apresDeux.modalOuverte && tc.apresDeux.focusActif, troisCouches);
+  check('I3 — le troisième Échap quitte enfin le mode focus',
+    !tc.apresTrois.focusActif, troisCouches);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   clearTimeout(chienDeGarde);

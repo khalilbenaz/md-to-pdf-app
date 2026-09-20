@@ -838,10 +838,20 @@ window.commands.register({
 });
 
 document.addEventListener('keydown', (e) => {
-  // Un Échap par couche, la plus interne d'abord : si la palette est
-  // ouverte, c'est à elle de le traiter (et d'arrêter la propagation) —
-  // ici on ne fait rien pour éviter qu'un seul Échap ferme les deux.
-  if (e.key === 'Escape' && document.body.classList.contains('focus') && paletteEl.classList.contains('hidden')) {
+  if (e.key !== 'Escape') return;
+  // Un Échap par couche, la plus interne d'abord. La palette gère son propre
+  // Échap sur son champ (avec stopPropagation) : si l'événement arrive
+  // jusqu'ici, c'est qu'elle n'avait pas le focus. La modale PDF est la
+  // couche suivante — sans ce cas, Échap en mode focus quittait le mode focus
+  // et faisait réapparaître l'habillage derrière une modale restée ouverte.
+  if (!pdfModal.classList.contains('hidden')) {
+    e.stopPropagation();
+    hidePdfModal();
+    return;
+  }
+  // Ici on ne fait rien de plus pour éviter qu'un seul Échap ferme deux
+  // couches à la fois.
+  if (document.body.classList.contains('focus') && paletteEl.classList.contains('hidden')) {
     basculerFocus(false);
   }
 });
