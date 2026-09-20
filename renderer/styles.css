@@ -392,8 +392,20 @@ main.no-sidebar.no-editor { grid-template-columns: 1fr; }
 body.focus header,
 body.focus #tabs,
 body.focus #sidebar,
+body.focus #editor,
 body.focus #statusbar { display: none !important; }
+body.focus main {
+  grid-template-columns: 1fr !important;
+}
 body.focus #preview {
+  /* `width: 100%` d'abord : sans valeur explicite, `margin: auto` sur un
+     élément de grille désactive l'étirement (« stretch ») et retombe sur un
+     ajustement au contenu (« fit-content ») — un document ne portant qu'un
+     titre court se retrouvait dans une colonne collée à sa largeur de texte
+     au lieu de la largeur de lecture visée. Une largeur explicite rend la
+     boîte à taille déterminée, et `max-width` + `margin: auto` la centrent
+     normalement au lieu de la faire flotter avec le contenu. */
+  width: 100%;
   max-width: 46rem;
   margin: 0 auto;
   padding: 3rem 1.5rem;

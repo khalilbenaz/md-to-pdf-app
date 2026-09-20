@@ -917,6 +917,42 @@ app.whenReady().then(async () => {
   check('le message final résume le lot réellement traité', /^2 PDF écrits dans /.test(aa.resume), avantApres);
   await fs.rm(lotDir2, { recursive: true, force: true });
 
+  // ── C1 : en configuration par défaut (panneau ouvert, volet code fermé),
+  // le mode focus doit vraiment passer `main` en une seule colonne — mesuré
+  // sur la géométrie réelle, pas sur la seule présence de la classe `focus`,
+  // qui passait alors même que la grille restait à 240px 1fr et que
+  // `#preview` se retrouvait coincé dans la première colonne (240px).
+  // Un onglet au contenu très court (juste un titre) exerce en plus un
+  // second piège de la même famille : `margin: auto` sur un élément de
+  // grille dont la largeur reste `auto` désactive l'étirement et retombe sur
+  // un ajustement à la largeur du contenu, ce qui collait la colonne de
+  // lecture à la largeur d'un titre au lieu de la largeur de lecture visée.
+  const geometrieFocus = await win.webContents.executeJavaScript(`(() => {
+    const toggle = document.getElementById('toggle-editor');
+    if (toggle.checked) { toggle.checked = false; toggle.dispatchEvent(new Event('change')); }
+    window.newTab({ content: '# Titre court\\n' });
+    const main = document.querySelector('main');
+    const previewEl = document.getElementById('preview');
+    window.commands.run('vue:focus');
+    const largeurMain = main.getBoundingClientRect().width;
+    const largeurPreview = previewEl.getBoundingClientRect().width;
+    const editorVisible = getComputedStyle(document.getElementById('editor')).display !== 'none';
+    window.commands.run('vue:focus');
+    return JSON.stringify({ largeurMain, largeurPreview, editorVisible });
+  })()`);
+  const gf = JSON.parse(geometrieFocus);
+  // La colonne de lecture est plafonnée à 46rem (voir styles.css) : dans une
+  // fenêtre plus large que ça, #preview ne doit PAS égaler la largeur de
+  // main — c'est le seuil de lecture qui doit gagner, pas un étirement
+  // intégral. On vérifie donc qu'elle occupe tout l'espace disponible
+  // jusqu'à ce plafond, quelle que soit la longueur du contenu.
+  const plafondLecture = 46 * 16;
+  const attendu = Math.min(gf.largeurMain, plafondLecture);
+  check('C1 — en mode focus, #preview occupe la largeur de lecture disponible, pas la largeur d’un titre court',
+    Math.abs(gf.largeurPreview - attendu) < 2, geometrieFocus + ' attendu=' + attendu);
+  check('C1 — en mode focus, le volet code reste masqué même s’il était ouvert',
+    !gf.editorVisible, geometrieFocus);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   clearTimeout(chienDeGarde);
