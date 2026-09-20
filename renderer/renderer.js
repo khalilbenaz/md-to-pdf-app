@@ -992,6 +992,11 @@ async function exporterLot() {
         preview.innerHTML = '';
         fileNameEl.textContent = 'Sans titre';
         renderTabs();
+        // Minor 5 : cette branche court-circuite setActiveTab(), qui est le
+        // seul endroit qui rappelle sinon watchFile() — sans cet appel, le
+        // processus principal continuait de surveiller le dernier fichier
+        // du lot alors qu'aucun onglet ne le représente plus.
+        window.api.watchFile(null);
       }
     }
 

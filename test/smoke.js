@@ -1306,6 +1306,40 @@ app.whenReady().then(async () => {
   check('Minor 4 — un second appel à palette.ouvrir() n’écrase pas le focus précédent mémorisé',
     JSON.parse(idempotence).rendu, idempotence);
 
+  // ── Minor 5 : la branche « plus aucun onglet » du lot doit rappeler la
+  // surveillance de fichier à null, comme setActiveTab() le fait partout
+  // ailleurs — sinon le processus principal continue de surveiller le
+  // dernier fichier du lot alors qu'aucun onglet ne le représente plus.
+  // `file:watch` est stubbé à `() => null` en tête de ce fichier : on
+  // installe le vrai handler (déjà capturé dans `handlers`) le temps du
+  // test, pour observer les arguments réels des appels.
+  const vraiWatchHandler = handlers['file:watch'];
+  const appelsWatch = [];
+  ipcMain.removeHandler('file:watch');
+  ipcMain.handle('file:watch', (e, filePath) => { appelsWatch.push(filePath); return vraiWatchHandler(e, filePath); });
+  const lotDir6 = path.join(app.getPath('temp'), `mdtopdf-lot6-${Date.now()}`);
+  await fs.mkdir(lotDir6, { recursive: true });
+  await fs.writeFile(path.join(lotDir6, 'seul.md'), '# Seul\n\nTexte.\n', 'utf8');
+  const vraiOpenDialog5 = dialog.showOpenDialog;
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [lotDir6] });
+  const surveillance = await win.webContents.executeJavaScript(`(async () => {
+    window.confirm = () => true;
+    // Ferme tous les onglets existants : le lot doit démarrer sans aucun
+    // onglet d'origine pour atteindre la branche « plus aucun onglet ».
+    let bouton;
+    while ((bouton = document.querySelector('#tabs .tab .close'))) bouton.click();
+    await window.exporterLot();
+    return JSON.stringify({ activeTabNul: !document.querySelector('#tabs .tab.active') });
+  })()`);
+  dialog.showOpenDialog = vraiOpenDialog5;
+  ipcMain.removeHandler('file:watch');
+  ipcMain.handle('file:watch', vraiWatchHandler);
+  const surv = JSON.parse(surveillance);
+  check('Minor 5 — après un lot qui ne laisse aucun onglet, la surveillance de fichier est rappelée à null',
+    appelsWatch.length > 0 && appelsWatch[appelsWatch.length - 1] === null,
+    JSON.stringify(appelsWatch));
+  await fs.rm(lotDir6, { recursive: true, force: true });
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   clearTimeout(chienDeGarde);
