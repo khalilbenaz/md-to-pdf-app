@@ -87,6 +87,10 @@ function setActiveTab(t) {
 }
 
 function closeTab(t) {
+  // L'onglet de travail d'un lot en cours ne se ferme pas : la prochaine
+  // itération le réactiverait alors qu'il n'existe plus dans `tabs`. Le
+  // refus a lieu avant la confirmation de perte de modifications, pas après.
+  if (t === tabDuLot) return;
   if (t.dirty && !confirm('Fermer l\'onglet sans enregistrer ?')) return;
   const i = tabs.indexOf(t);
   tabs.splice(i, 1);
@@ -216,6 +220,9 @@ async function openFile() {
 
 async function saveFile() {
   if (!activeTab) return;
+  // L'onglet de travail d'un lot vise le fichier source en cours de
+  // traitement : l'enregistrer écrirait dedans par-dessus le lot lui-même.
+  if (activeTab === tabDuLot) return;
   const saved = await window.api.saveFile({ filePath: activeTab.path, content: editor.getValue() });
   if (saved) {
     activeTab.path = saved;
@@ -230,8 +237,12 @@ async function saveFile() {
 let autosaveTimer;
 function scheduleAutosave() {
   if (!document.getElementById('toggle-autosave').checked) return;
+  // Suspendu pendant un lot : l'onglet actif est alors l'onglet de travail,
+  // dont le `path` désigne un fichier source du lot — une frappe pendant le
+  // lot ne doit jamais programmer une écriture dessus.
+  if (lotEnCours) return;
   clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(() => { if (activeTab?.path && activeTab.dirty) saveFile(); }, 2000);
+  autosaveTimer = setTimeout(() => { if (!lotEnCours && activeTab?.path && activeTab.dirty) saveFile(); }, 2000);
 }
 
 // ---------- Folder tree ----------
@@ -871,6 +882,11 @@ function detecterConflitsLot(fichiers) {
 // sans qu'aucun compteur ne le voie. Un second appel doit donc refuser de
 // démarrer, et le dire.
 let lotEnCours = false;
+// L'onglet de travail vise successivement chaque fichier source du lot :
+// l'enregistrement automatique (markDirty()/scheduleAutosave()) et la
+// fermeture d'onglet (closeTab(), y compris via Cmd+W) le vérifient pour se
+// suspendre pendant sa durée de vie.
+let tabDuLot = null;
 
 async function exporterLot() {
   if (lotEnCours) {
@@ -900,6 +916,7 @@ async function exporterLot() {
     const options = readPdfOptions();
     const tabOrigine = activeTab;
     const tabTravail = newTab({});
+    tabDuLot = tabTravail;
     let faits = 0;
     let echecs = 0;
     let remplaces = 0;
@@ -923,6 +940,7 @@ async function exporterLot() {
         }
       }
     } finally {
+      tabDuLot = null;
       const i = tabs.indexOf(tabTravail);
       if (i !== -1) tabs.splice(i, 1);
       if (tabOrigine && tabs.includes(tabOrigine)) {

@@ -980,6 +980,88 @@ app.whenReady().then(async () => {
     /déjà en cours/i.test(cc.messageImmediat), concurrence);
   await fs.rm(lotDir3, { recursive: true, force: true });
 
+  // ── C3 : pendant un lot, l'enregistrement automatique est suspendu et
+  // l'onglet de travail ne peut pas être enregistré ni fermé. L'onglet de
+  // travail vise successivement chaque fichier source du lot : sans garde,
+  // une frappe pendant le lot armerait scheduleAutosave(), qui écrirait deux
+  // secondes plus tard dans le fichier source ; et Cmd+W fermerait un onglet
+  // que la prochaine itération du lot réactive alors qu'il n'existe plus.
+  // Le déclenchement réel de l'autosave dépend d'un délai de 2 s dans une
+  // fenêtre cachée (`show:false`), où Chromium peut retarder les
+  // minuteurs : plutôt que d'attendre ce délai pour de vrai (lent et
+  // possiblement peu fiable), le test intercepte `setTimeout` pour vérifier
+  // directement la décision de programmation, et appelle `saveFile()` de
+  // façon synchrone pour vérifier le refus d'écriture — les deux chemins que
+  // l'autosave et Cmd+S empruntent réellement.
+  const lotDir4 = path.join(app.getPath('temp'), `mdtopdf-lot4-${Date.now()}`);
+  await fs.mkdir(lotDir4, { recursive: true });
+  await fs.writeFile(path.join(lotDir4, 'p.md'), '# P\n\nTexte.\n', 'utf8');
+  await fs.writeFile(path.join(lotDir4, 'q.md'), '# Q\n\nTexte.\n', 'utf8');
+  const vraiOpenDialog3 = dialog.showOpenDialog;
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [lotDir4] });
+  // On remplace le vrai handler d'enregistrement par un espion qui ne touche
+  // pas le disque : si une garde échoue, le scénario appellerait `file:save`
+  // avec un chemin qui pointe vers un fichier source du lot — l'espion le
+  // détecte sans jamais risquer d'écrire quoi que ce soit pour de vrai.
+  const vraiSaveHandler = handlers['file:save'];
+  let appelsSauvegarde = 0;
+  ipcMain.removeHandler('file:save');
+  ipcMain.handle('file:save', () => { appelsSauvegarde += 1; return null; });
+  const suspension = await win.webContents.executeJavaScript(`(async () => {
+    // Sans la garde de fermeture, l'onglet de travail venant d'être marqué
+    // modifié atteindrait la confirmation de perte de modifications : un vrai
+    // dialogue natif bloquerait ce test. On l'accepte automatiquement, ce qui
+    // laisse le défaut se manifester (l'onglet se ferme) sans jamais faire
+    // dépendre le test d'un dialogue système.
+    window.confirm = () => true;
+    document.getElementById('toggle-autosave').checked = true;
+    window.newTab({ content: '# Origine 3\\n' });
+    const avantOnglets = document.querySelectorAll('#tabs .tab').length;
+    const lot = window.exporterLot();
+    let tentatives = 0;
+    while (!document.getElementById('file-name').textContent.startsWith('Export ') && tentatives < 1000) {
+      await new Promise(r => setTimeout(r, 5));
+      tentatives += 1;
+    }
+    const pendantLeLot = document.getElementById('file-name').textContent.startsWith('Export ');
+    // L'onglet de travail est actif : appeler saveFile() directement emprunte
+    // exactement le chemin que Cmd+S ou l'autosave débouclée emprunteraient.
+    await window.saveFile();
+    // Simule une frappe pendant le lot, sur l'onglet de travail : sans la
+    // garde, ceci arme un minuteur à 2000 ms via scheduleAutosave().
+    // L'interception de setTimeout constate la décision sans attendre le
+    // délai réel.
+    let minuteurAutosaveArme = false;
+    const vraiSetTimeout = window.setTimeout;
+    window.setTimeout = function (fn, delai, ...reste) {
+      if (delai === 2000) minuteurAutosaveArme = true;
+      return vraiSetTimeout(fn, delai, ...reste);
+    };
+    window.markDirty();
+    window.setTimeout = vraiSetTimeout;
+    const ongletsPendantLot = document.querySelectorAll('#tabs .tab').length;
+    const boutonFermer = document.querySelector('#tabs .tab.active .close');
+    if (boutonFermer) boutonFermer.click();
+    const ongletsApresFermeture = document.querySelectorAll('#tabs .tab').length;
+    await lot;
+    const ongletsApresLot = document.querySelectorAll('#tabs .tab').length;
+    return JSON.stringify({ pendantLeLot, avantOnglets, ongletsPendantLot, ongletsApresFermeture, ongletsApresLot, minuteurAutosaveArme });
+  })()`);
+  dialog.showOpenDialog = vraiOpenDialog3;
+  ipcMain.removeHandler('file:save');
+  ipcMain.handle('file:save', vraiSaveHandler);
+  const su = JSON.parse(suspension);
+  check('C3 — le lot atteint bien l’onglet de travail avant la vérification', su.pendantLeLot, suspension);
+  check('C3 — l’onglet de travail ne peut pas être enregistré pendant un lot',
+    appelsSauvegarde === 0, suspension);
+  check('C3 — une frappe pendant un lot n’arme pas le minuteur d’autosave',
+    su.minuteurAutosaveArme === false, suspension);
+  check('C3 — Cmd+W ne ferme pas l’onglet de travail pendant un lot',
+    su.ongletsPendantLot === su.ongletsApresFermeture, suspension);
+  check('C3 — le lot laisse le même nombre d’onglets qu’à son démarrage, malgré la tentative de fermeture',
+    su.ongletsApresLot === su.avantOnglets, suspension);
+  await fs.rm(lotDir4, { recursive: true, force: true });
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   clearTimeout(chienDeGarde);
