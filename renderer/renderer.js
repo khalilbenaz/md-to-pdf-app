@@ -722,6 +722,7 @@ const paletteEl = document.getElementById('palette');
 const paletteRequete = document.getElementById('palette-requete');
 const paletteListe = document.getElementById('palette-liste');
 let paletteIndex = 0;
+let paletteFocusPrecedent = null;
 
 function paletteRendu() {
   const resultats = window.commands.filtrer(paletteRequete.value);
@@ -745,6 +746,10 @@ function paletteRendu() {
 }
 
 function ouvrirPalette() {
+  // Mémorisé pour le rendre à la fermeture, comme une boîte de dialogue :
+  // ça marche quelle que soit la configuration de l'interface, sans
+  // supposer que l'éditeur est visible.
+  paletteFocusPrecedent = document.activeElement;
   paletteIndex = 0;
   paletteRequete.value = '';
   paletteEl.classList.remove('hidden');
@@ -752,17 +757,26 @@ function ouvrirPalette() {
   paletteRequete.focus();
 }
 
+function estFocusable(el) {
+  return !!el && el !== document.body && document.contains(el) && el.offsetParent !== null;
+}
+
 function fermerPalette() {
   paletteEl.classList.add('hidden');
   // `display: none` fait perdre le focus : sans ça, il faut recliquer dans
-  // le document après chaque commande.
-  if (editor) editor.focus();
+  // le document après chaque commande. On rend le focus à ce qui l'avait
+  // avant l'ouverture ; s'il n'est plus focusable (masqué, retiré du DOM),
+  // repli sur l'éditeur s'il existe.
+  const precedent = paletteFocusPrecedent;
+  paletteFocusPrecedent = null;
+  if (estFocusable(precedent)) precedent.focus();
+  else if (editor) editor.focus();
 }
 
 paletteRequete.addEventListener('input', () => { paletteIndex = 0; paletteRendu(); });
 paletteRequete.addEventListener('keydown', (e) => {
   const resultats = window.commands.filtrer(paletteRequete.value);
-  if (e.key === 'Escape') { e.preventDefault(); fermerPalette(); }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fermerPalette(); }
   else if (e.key === 'ArrowDown') { e.preventDefault(); paletteIndex = Math.min(paletteIndex + 1, resultats.length - 1); paletteRendu(); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); paletteIndex = Math.max(paletteIndex - 1, 0); paletteRendu(); }
   else if (e.key === 'Enter') {
@@ -809,12 +823,14 @@ function basculerFocus(actif) {
 window.commands.register({
   id: 'vue:focus',
   titre: 'Mode focus (masquer l’habillage)',
-  raccourci: 'Échap pour sortir',
   executer: () => basculerFocus(),
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && document.body.classList.contains('focus')) {
+  // Un Échap par couche, la plus interne d'abord : si la palette est
+  // ouverte, c'est à elle de le traiter (et d'arrêter la propagation) —
+  // ici on ne fait rien pour éviter qu'un seul Échap ferme les deux.
+  if (e.key === 'Escape' && document.body.classList.contains('focus') && paletteEl.classList.contains('hidden')) {
     basculerFocus(false);
   }
 });

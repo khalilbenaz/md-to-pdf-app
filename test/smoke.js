@@ -770,17 +770,20 @@ app.whenReady().then(async () => {
   check('une commande inconnue ne lève pas', pal.inconnue === false, palette);
   check('la palette s’ouvre et se ferme', pal.ouverte && pal.fermee, palette);
 
-  const paletteFocus = await win.webContents.executeJavaScript(`(() => {
-    const toggle = document.getElementById('toggle-editor');
-    if (!toggle.checked) { toggle.checked = true; toggle.dispatchEvent(new Event('change')); }
-    const editorEl = document.getElementById('editor');
-    editorEl.querySelector('.cm-content')?.focus();
+  // Configuration PAR DÉFAUT : le volet éditeur est masqué au démarrage
+  // (`codePaneVisible` absent du localStorage), donc `editor.focus()` seul
+  // serait un no-op. On mémorise plutôt ce qui avait le focus avant
+  // l'ouverture — ici un bouton de la barre d'outils — et on vérifie qu'on
+  // le retrouve à la fermeture, sans rien supposer de l'état du volet code.
+  const focusDefaut = await win.webContents.executeJavaScript(`(() => {
+    const bouton = document.getElementById('btn-theme');
+    bouton.focus();
     window.palette.ouvrir();
     window.palette.fermer();
-    return JSON.stringify({ focusRendu: editorEl.contains(document.activeElement) });
+    return JSON.stringify({ rendu: document.activeElement === bouton });
   })()`);
-  const pf = JSON.parse(paletteFocus);
-  check('fermer la palette rend le focus à l’éditeur', pf.focusRendu, paletteFocus);
+  const fd = JSON.parse(focusDefaut);
+  check('fermer la palette rend le focus à ce qui l’avait, volet éditeur masqué', fd.rendu, focusDefaut);
 
   const focus = await win.webContents.executeJavaScript(`(() => {
     const etaitActif = document.body.classList.contains('focus');
@@ -796,6 +799,41 @@ app.whenReady().then(async () => {
   check('il n’est pas actif au démarrage', !fo.etaitActif, focus);
   check('la commande l’active', fo.actif, focus);
   check('Échap en sort', fo.sorti, focus);
+
+  // Second cas : le volet éditeur est visible et c'est lui qui avait le
+  // focus avant l'ouverture de la palette — la restitution doit aussi
+  // marcher dans cette configuration.
+  const focusEditeurVisible = await win.webContents.executeJavaScript(`(() => {
+    const toggle = document.getElementById('toggle-editor');
+    if (!toggle.checked) { toggle.checked = true; toggle.dispatchEvent(new Event('change')); }
+    const editorEl = document.getElementById('editor');
+    editorEl.querySelector('.cm-content')?.focus();
+    window.palette.ouvrir();
+    window.palette.fermer();
+    return JSON.stringify({ focusRendu: editorEl.contains(document.activeElement) });
+  })()`);
+  const fev = JSON.parse(focusEditeurVisible);
+  check('fermer la palette rend le focus à l’éditeur quand il l’avait, volet visible', fev.focusRendu, focusEditeurVisible);
+
+  // Un Échap par couche, la plus interne d'abord : palette ouverte en mode
+  // focus, le premier Échap ne doit fermer que la palette (pas quitter le
+  // mode focus), le second en sort. L'événement est déclenché sur le champ
+  // de la palette, effectivement focus, pour emprunter la vraie chaîne de
+  // remontée (bubbling) jusqu'à `document`.
+  const echapCombine = await win.webContents.executeJavaScript(`(() => {
+    window.commands.run('vue:focus');
+    window.palette.ouvrir();
+    document.getElementById('palette-requete').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const paletteFermee = document.getElementById('palette').classList.contains('hidden');
+    const toujoursActif = document.body.classList.contains('focus');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const sortiEnsuite = !document.body.classList.contains('focus');
+    return JSON.stringify({ paletteFermee, toujoursActif, sortiEnsuite });
+  })()`);
+  const ec = JSON.parse(echapCombine);
+  check('un Échap palette+focus ferme la palette sans quitter le mode focus', ec.paletteFermee && ec.toujoursActif, echapCombine);
+  check('un second Échap quitte ensuite le mode focus', ec.sortiEnsuite, echapCombine);
 
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
