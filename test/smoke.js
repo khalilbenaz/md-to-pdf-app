@@ -1260,6 +1260,13 @@ app.whenReady().then(async () => {
   check('I6 — le message de refus du lot reste visible en mode focus',
     mf.notifVisible && /enregistr/i.test(mf.notifTexte), muetEnFocus);
 
+  // ── Minor 1 : installer.iss doit annoncer la même version que le manifeste.
+  const pkgVersion = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8')).version;
+  const issSrc = await fs.readFile(path.join(root, 'installer.iss'), 'utf8');
+  const issVersion = (issSrc.match(/#define MyAppVersion "([^"]+)"/) || [])[1];
+  check('Minor 1 — installer.iss annonce la même version que package.json',
+    issVersion === pkgVersion, `installer.iss=${issVersion} package.json=${pkgVersion}`);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   clearTimeout(chienDeGarde);
