@@ -1,6 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  // Le registre de commandes affiche un raccourci par plateforme : Cmd sur
+  // macOS, Ctrl ailleurs — l'application livre aussi un installeur Windows.
+  platform: process.platform,
   openFile: () => ipcRenderer.invoke('file:open'),
   openFolder: () => ipcRenderer.invoke('folder:open'),
   refreshFolder: (root) => ipcRenderer.invoke('folder:refresh', root),

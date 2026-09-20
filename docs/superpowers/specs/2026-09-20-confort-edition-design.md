@@ -71,8 +71,18 @@ Trois mesures dans `test/smoke.js`, aucune dans l'application.
 ### B — Palette de commandes
 
 `renderer/commands.js` (bundlé) porte un **registre** : chaque commande est un
-objet `{ id, titre, raccourci, executer }`. L'interface et les menus s'y
-abonnent au lieu de câbler des écouteurs un par un.
+objet `{ id, titre, raccourci, executer }`.
+
+**Ce que le registre est réellement, pas ce qu'il devrait être** : seule la
+palette le lit (`filtrer()`, `run()`). Les boutons de l'en-tête gardent leurs
+propres écouteurs (`btn-open`, `btn-save`, …), les menus leurs propres canaux
+IPC (`menu:open`, `menu:save`, …), et les accélérateurs restent déclarés en
+dur dans `main.js`. Le champ `raccourci` de chaque commande n'est qu'un
+libellé affiché dans la liste — rien ne le relie au raccourci clavier
+réellement actif ailleurs dans l'application, et rien ne détecte un doublon
+entre les deux. « L'interface et les menus s'y abonnent » décrivait
+l'intention, pas ce qui a été livré : recâbler boutons, menus et
+accélérateurs sur le registre reste du travail à faire, dans un autre lot.
 
 `Cmd/Ctrl+K` ouvre un champ de recherche floue sur les titres. `↑` `↓`
 naviguent, `Entrée` exécute, `Échap` ferme. La liste affiche le raccourci
@@ -116,4 +126,4 @@ que sur un ratio ; export par lot récursif dans les sous-dossiers.
 | Neutraliser `app.whenReady` empêche aussi le test de démarrer | Le test attend la vraie promesse avant de charger `main.js`, et n'intercepte que les rappels que `main.js` enregistre ensuite |
 | Le chien de garde masque un blocage réel en le transformant en échec | Il sort en code 1 avec un message explicite, jamais en succès |
 | L'export par lot bloque l'interface sur un gros dossier | Un fichier à la fois, progression affichée, annulable en fermant la fenêtre |
-| La palette double des raccourcis existants | Le registre est la source unique : les raccourcis s'y déclarent, les doublons se voient |
+| La palette double des raccourcis existants | Non paré : le registre n'est pas la source unique (voir section B), rien ne détecte aujourd'hui un doublon entre le libellé affiché dans la palette et un raccourci réellement actif ailleurs |

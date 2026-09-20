@@ -1059,6 +1059,18 @@ app.whenReady().then(async () => {
   let appelsSauvegarde = 0;
   ipcMain.removeHandler('file:save');
   ipcMain.handle('file:save', () => { appelsSauvegarde += 1; return null; });
+  // La vitesse réelle de lecture disque + rendu PDF varie avec la charge de
+  // la machine ; sans un délai déterministe, l'état « en cours » du lot peut
+  // se dérober à un sondage même rapproché. `file:read` est le premier
+  // aller-retour IPC de chaque itération, juste après que le texte
+  // « Export … » est posé : le ralentir garantit une fenêtre d'observation
+  // stable, indépendante du temps réel de génération du PDF.
+  const vraiReadHandler = handlers['file:read'];
+  ipcMain.removeHandler('file:read');
+  ipcMain.handle('file:read', async (...args) => {
+    await new Promise((r) => setTimeout(r, 150));
+    return vraiReadHandler(...args);
+  });
   const suspension = await win.webContents.executeJavaScript(`(async () => {
     // Sans la garde de fermeture, l'onglet de travail venant d'être marqué
     // modifié atteindrait la confirmation de perte de modifications : un vrai
@@ -1102,6 +1114,8 @@ app.whenReady().then(async () => {
   dialog.showOpenDialog = vraiOpenDialog3;
   ipcMain.removeHandler('file:save');
   ipcMain.handle('file:save', vraiSaveHandler);
+  ipcMain.removeHandler('file:read');
+  ipcMain.handle('file:read', vraiReadHandler);
   const su = JSON.parse(suspension);
   check('C3 — le lot atteint bien l’onglet de travail avant la vérification', su.pendantLeLot, suspension);
   check('C3 — l’onglet de travail ne peut pas être enregistré pendant un lot',
@@ -1186,6 +1200,37 @@ app.whenReady().then(async () => {
   check('I4 — le message final nomme le premier fichier fautif',
     /b\.md/.test(resultatI4) && /en échec/.test(resultatI4), resultatI4);
   await fs.rm(lotDir5, { recursive: true, force: true });
+
+  // ── I5 : les raccourcis du registre étaient des littéraux `Cmd+…`, faux
+  // hors macOS — l'application livre aussi un installeur Windows. On ne peut
+  // pas changer la plateforme réelle de ce processus de test : on charge donc
+  // l'application dans une fenêtre à part, avec un préchargement qui se fait
+  // passer pour Windows avant de déléguer au vrai preload.js.
+  // Un preload isolé ne peut pas `require()` un second fichier local
+  // arbitraire (résolution de module restreinte) : on combine donc la
+  // source réelle de preload.js avec la redéfinition de plateforme dans un
+  // seul fichier temporaire, plutôt que d'en charger un second par-dessus.
+  const preloadWin32 = path.join(app.getPath('temp'), `mdtopdf-preload-win32-${Date.now()}.js`);
+  const sourcePreloadReel = await fs.readFile(path.join(root, 'preload.js'), 'utf8');
+  await fs.writeFile(
+    preloadWin32,
+    `Object.defineProperty(process, 'platform', { value: 'win32' });\n${sourcePreloadReel}`,
+    'utf8'
+  );
+  const winWin32 = new BrowserWindow({ show: false, webPreferences: { preload: preloadWin32 } });
+  const messagesWin32 = [];
+  winWin32.webContents.on('console-message', (_e, _lvl, message) => messagesWin32.push(message));
+  winWin32.webContents.on('preload-error', (_e, p, error) => messagesWin32.push('preload-error: ' + p + ' ' + error.message));
+  await winWin32.loadFile(path.join(root, 'renderer', 'index.html'));
+  await new Promise((r) => setTimeout(r, 1000));
+  const raccourcisWin32 = await winWin32.webContents.executeJavaScript(
+    `JSON.stringify({ plateforme: window.api?.platform, raccourci: window.commands?.all().find(c => c.id === 'fichier:enregistrer')?.raccourci, aApi: typeof window.api, aCommands: typeof window.commands, console: ${JSON.stringify(messagesWin32)} })`
+  ).catch((e) => JSON.stringify({ erreurExec: e.message, console: messagesWin32 }));
+  winWin32.close();
+  await fs.unlink(preloadWin32).catch(() => {});
+  const rw = JSON.parse(raccourcisWin32);
+  check('I5 — le registre affiche Ctrl (pas Cmd) hors macOS',
+    rw.plateforme === 'win32' && rw.raccourci === 'Ctrl+S', raccourcisWin32);
 
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);

@@ -810,16 +810,20 @@ document.addEventListener('keydown', (e) => {
 
 // Les actions déjà existantes deviennent des commandes : la palette n'invente
 // rien, elle rend joignable ce que les boutons et les menus font déjà.
+// I5 : les raccourcis affichés étaient des littéraux `Cmd+…`, faux hors
+// macOS — l'application livre aussi un installeur Windows. Le modificateur
+// se déduit de la plateforme (exposée par le préchargement).
+const MOD = window.api.platform === 'darwin' ? 'Cmd' : 'Ctrl';
 for (const c of [
-  { id: 'fichier:nouveau', titre: 'Nouvel onglet', raccourci: 'Cmd+N', executer: () => { newTab(); markClean(); } },
-  { id: 'fichier:ouvrir', titre: 'Ouvrir un fichier', raccourci: 'Cmd+O', executer: openFile },
-  { id: 'fichier:dossier', titre: 'Ouvrir un dossier', raccourci: 'Cmd+Shift+O', executer: openFolder },
-  { id: 'fichier:enregistrer', titre: 'Enregistrer', raccourci: 'Cmd+S', executer: saveFile },
-  { id: 'export:pdf', titre: 'Exporter en PDF', raccourci: 'Cmd+E', executer: showPdfModal },
-  { id: 'export:html', titre: 'Exporter en HTML', raccourci: 'Cmd+Shift+E', executer: doExportHtml },
-  { id: 'export:imprimer', titre: 'Imprimer', raccourci: 'Cmd+P', executer: doPrint },
-  { id: 'vue:code', titre: 'Afficher ou masquer le volet code', raccourci: 'Cmd+/', executer: () => { toggleEditor.checked = !toggleEditor.checked; toggleEditor.dispatchEvent(new Event('change')); } },
-  { id: 'vue:theme', titre: 'Basculer le thème clair ou sombre', raccourci: 'Cmd+T', executer: () => document.getElementById('btn-theme').click() },
+  { id: 'fichier:nouveau', titre: 'Nouvel onglet', raccourci: `${MOD}+N`, executer: () => { newTab(); markClean(); } },
+  { id: 'fichier:ouvrir', titre: 'Ouvrir un fichier', raccourci: `${MOD}+O`, executer: openFile },
+  { id: 'fichier:dossier', titre: 'Ouvrir un dossier', raccourci: `${MOD}+Shift+O`, executer: openFolder },
+  { id: 'fichier:enregistrer', titre: 'Enregistrer', raccourci: `${MOD}+S`, executer: saveFile },
+  { id: 'export:pdf', titre: 'Exporter en PDF', raccourci: `${MOD}+E`, executer: showPdfModal },
+  { id: 'export:html', titre: 'Exporter en HTML', raccourci: `${MOD}+Shift+E`, executer: doExportHtml },
+  { id: 'export:imprimer', titre: 'Imprimer', raccourci: `${MOD}+P`, executer: doPrint },
+  { id: 'vue:code', titre: 'Afficher ou masquer le volet code', raccourci: `${MOD}+/`, executer: () => { toggleEditor.checked = !toggleEditor.checked; toggleEditor.dispatchEvent(new Event('change')); } },
+  { id: 'vue:theme', titre: 'Basculer le thème clair ou sombre', raccourci: `${MOD}+T`, executer: () => document.getElementById('btn-theme').click() },
   { id: 'vue:panneau', titre: 'Afficher ou masquer le panneau latéral', executer: () => document.getElementById('btn-sidebar').click() },
 ]) window.commands.register(c);
 

@@ -258,7 +258,7 @@ md-to-pdf-app/
 ├── renderer/
 │   ├── index.html              # Shell de l'UI
 │   ├── styles.css              # Thèmes clair/sombre, layout en grille
-│   ├── commands.js             # Registre des commandes, source unique des actions
+│   ├── commands.js             # Registre des commandes lu par la palette (boutons/menus/accélérateurs restent câblés séparément)
 │   ├── editor-src.js           # Source CodeMirror 6 (bundlée par esbuild)
 │   ├── editor-bundle.js        # Bundle généré (ignoré par git)
 │   ├── markdown/               # Moteur de rendu : parse.js, enhance.js, labels.js, icons.js
