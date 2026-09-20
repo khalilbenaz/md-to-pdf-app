@@ -768,6 +768,13 @@ function paletteRendu() {
 }
 
 function ouvrirPalette() {
+  // Minor 4 : un second appel pendant que la palette est déjà ouverte
+  // écrasait la mémoire du focus précédent avec `paletteRequete`
+  // elle-même (activeElement à ce moment), puisqu'elle a le focus. La
+  // fermeture rendait alors le focus au champ de la palette, pas à ce qui
+  // l'avait avant sa toute première ouverture. Idempotent : un second appel
+  // ne fait rien de plus.
+  if (!paletteEl.classList.contains('hidden')) return;
   // Mémorisé pour le rendre à la fermeture, comme une boîte de dialogue :
   // ça marche quelle que soit la configuration de l'interface, sans
   // supposer que l'éditeur est visible.

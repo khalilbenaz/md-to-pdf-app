@@ -1292,6 +1292,20 @@ app.whenReady().then(async () => {
   check('Minor 3 — l’échec est journalisé en console',
     messagesMinor3.some((m) => m.includes('test:echoue')), JSON.stringify(messagesMinor3));
 
+  // ── Minor 4 : Cmd/Ctrl+Shift+P doit être idempotent — un second appui
+  // pendant que la palette est déjà ouverte ne doit pas écraser la mémoire
+  // du focus précédent avec le champ de la palette elle-même.
+  const idempotence = await win.webContents.executeJavaScript(`(() => {
+    const bouton = document.getElementById('btn-theme');
+    bouton.focus();
+    window.palette.ouvrir();
+    window.palette.ouvrir();
+    window.palette.fermer();
+    return JSON.stringify({ rendu: document.activeElement === bouton });
+  })()`);
+  check('Minor 4 — un second appel à palette.ouvrir() n’écrase pas le focus précédent mémorisé',
+    JSON.parse(idempotence).rendu, idempotence);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   clearTimeout(chienDeGarde);
