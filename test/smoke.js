@@ -1002,8 +1002,26 @@ app.whenReady().then(async () => {
   const attendu = Math.min(gf.largeurMain, plafondLecture);
   check('C1 — en mode focus, #preview occupe la largeur de lecture disponible, pas la largeur d’un titre court',
     Math.abs(gf.largeurPreview - attendu) < 2, geometrieFocus + ' attendu=' + attendu);
+
+  // Relecture : le sous-test précédent forçait le volet code à fermé juste
+  // avant d'entrer en mode focus — il ne testait donc jamais le cas qu'il
+  // annonçait (« même s'il était ouvert »). Celui-ci force le volet
+  // réellement OUVERT avant d'entrer en mode focus.
+  const geometrieFocusVoletOuvert = await win.webContents.executeJavaScript(`(() => {
+    const toggle = document.getElementById('toggle-editor');
+    if (!toggle.checked) { toggle.checked = true; toggle.dispatchEvent(new Event('change')); }
+    const voletOuvertAvant = getComputedStyle(document.getElementById('editor')).display !== 'none';
+    window.commands.run('vue:focus');
+    const editorVisibleEnFocus = getComputedStyle(document.getElementById('editor')).display !== 'none';
+    window.commands.run('vue:focus');
+    toggle.checked = false; toggle.dispatchEvent(new Event('change'));
+    return JSON.stringify({ voletOuvertAvant, editorVisibleEnFocus });
+  })()`);
+  const gfo = JSON.parse(geometrieFocusVoletOuvert);
+  check('C1 — le volet code est réellement ouvert avant d’entrer en mode focus (condition du test)',
+    gfo.voletOuvertAvant, geometrieFocusVoletOuvert);
   check('C1 — en mode focus, le volet code reste masqué même s’il était ouvert',
-    !gf.editorVisible, geometrieFocus);
+    !gfo.editorVisibleEnFocus, geometrieFocusVoletOuvert);
 
   // ── C2 : l'export par lot doit refuser un second appel pendant qu'un
   // premier tourne. Sans garde, les deux boucles s'entrelacent sur `preview`
@@ -1249,6 +1267,12 @@ app.whenReady().then(async () => {
         && getComputedStyle(notif).display !== 'none',
       notifTexte: notif.textContent,
     };
+    // Régression signalée en relecture : rien ne remettait jamais 'hidden',
+    // la bannière restait affichée en permanence après le premier lot. On
+    // attend au-delà du délai d'effacement (4 s) pour prouver la
+    // disparition, pas seulement l'apparition.
+    await new Promise(r => setTimeout(r, 4300));
+    resultat.notifDisparueApresDelai = notif.classList.contains('hidden');
     t.dirty = false;
     window.closeTab(t);
     window.commands.run('vue:focus');
@@ -1259,6 +1283,8 @@ app.whenReady().then(async () => {
     mf.focusActif && mf.enTeteMasquee, muetEnFocus);
   check('I6 — le message de refus du lot reste visible en mode focus',
     mf.notifVisible && /enregistr/i.test(mf.notifTexte), muetEnFocus);
+  check('I6 — la notification du lot finit par disparaître (ne reste pas affichée en permanence)',
+    mf.notifDisparueApresDelai === true, muetEnFocus);
 
   // ── Minor 1 : installer.iss doit annoncer la même version que le manifeste.
   const pkgVersion = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8')).version;

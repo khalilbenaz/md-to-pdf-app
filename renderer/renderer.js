@@ -27,10 +27,22 @@ const lotNotification = document.getElementById('lot-notification');
 // lancé en mode focus n'affichait donc rien — ni sélecteur, ni refus. Les
 // messages du lot passent par ce conteneur en plus de l'en-tête, jamais
 // masqué par le mode focus.
+// Régression signalée en relecture : la notification ne se refermait jamais
+// (rien ne remettait `hidden`), restant affichée en permanence après le
+// premier export par lot. Chaque appel réarme un délai d'effacement ; tant
+// que le lot envoie des messages de progression, il se réarme et reste
+// visible, puis s'efface tout seul un délai raisonnable après le dernier
+// message (le refus ou le résumé), assez long pour être lu.
+const DELAI_EFFACEMENT_NOTIFICATION_LOT_MS = 4000;
+let minuteurEffacementLot = null;
 function annoncerLot(message) {
   fileNameEl.textContent = message;
   lotNotification.textContent = message;
   lotNotification.classList.remove('hidden');
+  clearTimeout(minuteurEffacementLot);
+  minuteurEffacementLot = setTimeout(() => {
+    lotNotification.classList.add('hidden');
+  }, DELAI_EFFACEMENT_NOTIFICATION_LOT_MS);
 }
 
 // ---------- State ----------
