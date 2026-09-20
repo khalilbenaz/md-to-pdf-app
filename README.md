@@ -234,8 +234,8 @@ Un workflow **GitHub Actions** ([`.github/workflows/release.yml`](.github/workfl
 
 ```bash
 # Bump de version dans package.json, puis :
-git tag v1.1.3
-git push origin v1.1.3
+git tag v1.4.0
+git push origin v1.4.0
 ```
 
 Le push d'un tag `v*` déclenche le build multi-OS et attache les artefacts à la Release GitHub correspondante.
@@ -265,8 +265,10 @@ md-to-pdf-app/
 │   ├── icon.html               # Source de l'icône (SVG)
 │   ├── make-icon.js            # Rend l'icône en PNG 1024 via Electron
 │   ├── icon.png / icon.icns    # Icônes consommées par electron-builder
-├── test/markdown.test.js       # Tests unitaires du moteur, sans Electron (npm test)
-├── test/smoke.js               # Test de fumée end-to-end (npm test)
+├── test/markdown.test.js       # Tests unitaires du moteur Markdown, sans Electron
+├── test/pdf.test.js            # Tests unitaires de la chaîne PDF, sans Electron
+├── test/packaging.test.js      # Cohérence du manifeste et du verrou de dépendances
+├── test/smoke.js               # Test de fumée end-to-end, sous Electron
 ├── .github/workflows/ci.yml        # CI : test de fumée macOS / Linux / Windows
 ├── .github/workflows/release.yml   # CI : build & publication des installateurs
 ├── installer.iss               # Script Inno Setup (installateur Windows alternatif)
@@ -279,8 +281,17 @@ md-to-pdf-app/
 2. Le main process écrit ce HTML dans un fichier temporaire et le charge dans une
    `BrowserWindow` cachée — un document `file://` peut atteindre les polices KaTeX
    et les images référencées par le markdown, ce qu'une URL `data:` ne peut pas.
-3. `webContents.printToPDF()` génère le PDF via le moteur d'impression intégré de Chromium.
-4. Le fichier est écrit puis révélé dans le Finder / l'Explorateur.
+3. `webContents.printToPDF()` génère le PDF via le moteur d'impression intégré de Chromium,
+   avec les signets et le balisage d'accessibilité.
+4. **Si le document porte un `[[toc]]`, une seconde passe a lieu.** Un numéro de page ne se
+   déduit pas du DOM : `offsetTop` se trompe dès qu'une règle de pagination déplace un
+   élément. Le PDF, lui, porte la réponse dans sa table de destinations. `pdf.js` la lit,
+   remplit les emplacements du sommaire, et le document est rendu une seconde fois. Sans
+   sommaire, la passe est sautée et l'export garde son coût d'origine.
+5. Le fichier est écrit puis révélé dans le Finder / l'Explorateur.
+
+L'impression (`Cmd/Ctrl+P`) suit le même chemin de mesure avant d'envoyer le document à la
+boîte d'impression système, pour que son sommaire porte lui aussi ses numéros de page.
 
 **Ouverture depuis le système**
 - macOS envoie l'évènement `open-file` (double-clic / « Ouvrir avec »), parfois avant que le renderer soit prêt : les chemins sont mis en **file d'attente** puis rejoués une fois la fenêtre chargée.
