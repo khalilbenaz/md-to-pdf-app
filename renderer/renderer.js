@@ -754,6 +754,9 @@ function ouvrirPalette() {
 
 function fermerPalette() {
   paletteEl.classList.add('hidden');
+  // `display: none` fait perdre le focus : sans ça, il faut recliquer dans
+  // le document après chaque commande.
+  if (editor) editor.focus();
 }
 
 paletteRequete.addEventListener('input', () => { paletteIndex = 0; paletteRendu(); });
@@ -794,3 +797,24 @@ for (const c of [
   { id: 'vue:theme', titre: 'Basculer le thème clair ou sombre', raccourci: 'Cmd+T', executer: () => document.getElementById('btn-theme').click() },
   { id: 'vue:panneau', titre: 'Afficher ou masquer le panneau latéral', executer: () => document.getElementById('btn-sidebar').click() },
 ]) window.commands.register(c);
+
+// ---------- Mode focus ----------
+// Volontairement non mémorisé : on entre en mode focus pour une session de
+// travail, pas pour toujours.
+function basculerFocus(actif) {
+  const veut = actif === undefined ? !document.body.classList.contains('focus') : actif;
+  document.body.classList.toggle('focus', veut);
+}
+
+window.commands.register({
+  id: 'vue:focus',
+  titre: 'Mode focus (masquer l’habillage)',
+  raccourci: 'Échap pour sortir',
+  executer: () => basculerFocus(),
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.body.classList.contains('focus')) {
+    basculerFocus(false);
+  }
+});

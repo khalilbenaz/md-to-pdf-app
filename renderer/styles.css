@@ -387,3 +387,14 @@ main.no-sidebar.no-editor { grid-template-columns: 1fr; }
   padding: 0.05rem 0.35rem;
 }
 #palette li.actif kbd { color: var(--accent-fg); border-color: var(--accent-fg); }
+
+/* ---------- Mode focus ---------- */
+body.focus header,
+body.focus #tabs,
+body.focus #sidebar,
+body.focus #statusbar { display: none !important; }
+body.focus #preview {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+}

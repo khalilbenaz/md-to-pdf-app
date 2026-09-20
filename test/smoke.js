@@ -770,6 +770,33 @@ app.whenReady().then(async () => {
   check('une commande inconnue ne lève pas', pal.inconnue === false, palette);
   check('la palette s’ouvre et se ferme', pal.ouverte && pal.fermee, palette);
 
+  const paletteFocus = await win.webContents.executeJavaScript(`(() => {
+    const toggle = document.getElementById('toggle-editor');
+    if (!toggle.checked) { toggle.checked = true; toggle.dispatchEvent(new Event('change')); }
+    const editorEl = document.getElementById('editor');
+    editorEl.querySelector('.cm-content')?.focus();
+    window.palette.ouvrir();
+    window.palette.fermer();
+    return JSON.stringify({ focusRendu: editorEl.contains(document.activeElement) });
+  })()`);
+  const pf = JSON.parse(paletteFocus);
+  check('fermer la palette rend le focus à l’éditeur', pf.focusRendu, paletteFocus);
+
+  const focus = await win.webContents.executeJavaScript(`(() => {
+    const etaitActif = document.body.classList.contains('focus');
+    window.commands.run('vue:focus');
+    const actif = document.body.classList.contains('focus');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const sorti = !document.body.classList.contains('focus');
+    return JSON.stringify({ etaitActif, actif, sorti,
+      commande: window.commands.all().some(c => c.id === 'vue:focus') });
+  })()`);
+  const fo = JSON.parse(focus);
+  check('le mode focus est une commande', fo.commande, focus);
+  check('il n’est pas actif au démarrage', !fo.etaitActif, focus);
+  check('la commande l’active', fo.actif, focus);
+  check('Échap en sort', fo.sorti, focus);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   clearTimeout(chienDeGarde);
