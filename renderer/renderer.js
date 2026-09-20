@@ -930,6 +930,11 @@ async function exporterLot() {
     let faits = 0;
     let echecs = 0;
     let remplaces = 0;
+    // La spec promet des échecs « comptés et signalés » : un `catch` muet ne
+    // signale rien. On journalise le fichier et l'erreur, et on nomme le
+    // premier fichier fautif dans le message final — le seul qu'un
+    // utilisateur pressé lira vraiment.
+    let premierEchec = null;
     try {
       for (const [i, nom] of aTraiter.entries()) {
         fileNameEl.textContent = `Export ${i + 1}/${aTraiter.length} : ${nom}`;
@@ -945,7 +950,9 @@ async function exporterLot() {
           });
           if (resultat && resultat.remplace) remplaces += 1;
           faits += 1;
-        } catch {
+        } catch (erreur) {
+          console.error(`Export par lot : échec sur ${nom}`, erreur);
+          if (!premierEchec) premierEchec = nom;
           echecs += 1;
         }
       }
@@ -972,7 +979,7 @@ async function exporterLot() {
     } else {
       const morceaux = [`${faits} PDF écrits`];
       if (remplaces) morceaux.push(`${remplaces} remplacés`);
-      if (echecs) morceaux.push(`${echecs} en échec`);
+      if (echecs) morceaux.push(`${echecs} en échec (dont ${premierEchec})`);
       if (conflits) morceaux.push(`${conflits} ignorés (conflit de nom)`);
       fileNameEl.textContent = morceaux.join(', ');
     }

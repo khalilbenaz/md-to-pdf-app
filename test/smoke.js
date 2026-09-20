@@ -1071,7 +1071,7 @@ app.whenReady().then(async () => {
     const avantOnglets = document.querySelectorAll('#tabs .tab').length;
     const lot = window.exporterLot();
     let tentatives = 0;
-    while (!document.getElementById('file-name').textContent.startsWith('Export ') && tentatives < 1000) {
+    while (!document.getElementById('file-name').textContent.startsWith('Export ') && tentatives < 4000) {
       await new Promise(r => setTimeout(r, 5));
       tentatives += 1;
     }
@@ -1149,6 +1149,43 @@ app.whenReady().then(async () => {
     !tc.apresDeux.modalOuverte && tc.apresDeux.focusActif, troisCouches);
   check('I3 — le troisième Échap quitte enfin le mode focus',
     !tc.apresTrois.focusActif, troisCouches);
+
+  // ── I4 : un fichier en échec dans le lot doit être journalisé (nom +
+  // erreur) et nommé dans le message final — pas juste compté par un `catch`
+  // muet.
+  const lotDir5 = path.join(app.getPath('temp'), `mdtopdf-lot5-${Date.now()}`);
+  await fs.mkdir(lotDir5, { recursive: true });
+  await fs.writeFile(path.join(lotDir5, 'a.md'), '# A\n\nTexte.\n', 'utf8');
+  await fs.writeFile(path.join(lotDir5, 'b.md'), '# B\n\nTexte.\n', 'utf8');
+  const vraiOpenDialog4 = dialog.showOpenDialog;
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [lotDir5] });
+  const vraiExportHandler2 = handlers['file:export-pdf-to'];
+  ipcMain.removeHandler('file:export-pdf-to');
+  ipcMain.handle('file:export-pdf-to', async (e, args) => {
+    if (args.chemin.endsWith('b.pdf')) throw new Error('échec simulé pour la revue I4');
+    return vraiExportHandler2(e, args);
+  });
+  // console.error() dans exporterLot() s'exécute côté renderer : il faut
+  // l'écouter via console-message sur webContents, pas patcher le
+  // console.error du processus principal (qui ne verrait que les propres
+  // journaux d'Electron pour un handler IPC en échec, pas celui-ci).
+  const messagesConsole = [];
+  const ecouteurConsole = (_e, _lvl, message) => messagesConsole.push(message);
+  win.webContents.on('console-message', ecouteurConsole);
+  const resultatI4 = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '# Origine 4\\n' });
+    await window.exporterLot();
+    return document.getElementById('file-name').textContent;
+  })()`);
+  win.webContents.off('console-message', ecouteurConsole);
+  dialog.showOpenDialog = vraiOpenDialog4;
+  ipcMain.removeHandler('file:export-pdf-to');
+  ipcMain.handle('file:export-pdf-to', vraiExportHandler2);
+  check('I4 — le fichier fautif et l’erreur sont journalisés en console',
+    messagesConsole.some((m) => m.includes('b.md')), JSON.stringify(messagesConsole));
+  check('I4 — le message final nomme le premier fichier fautif',
+    /b\.md/.test(resultatI4) && /en échec/.test(resultatI4), resultatI4);
+  await fs.rm(lotDir5, { recursive: true, force: true });
 
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
