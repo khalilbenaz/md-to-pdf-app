@@ -834,3 +834,41 @@ document.addEventListener('keydown', (e) => {
     basculerFocus(false);
   }
 });
+
+// ---------- Export par lot ----------
+// Un fichier à la fois : chaque document doit passer par l'aperçu pour
+// produire son HTML. Un échec n'interrompt pas le lot, il est compté.
+async function exporterLot() {
+  const choix = await window.api.listMarkdown();
+  if (!choix) return;
+  const { dossier, fichiers } = choix;
+  if (!fichiers.length) {
+    fileNameEl.textContent = 'Aucun fichier markdown dans ce dossier';
+    return;
+  }
+  const options = readPdfOptions();
+  let faits = 0;
+  let echecs = 0;
+  for (const [i, nom] of fichiers.entries()) {
+    fileNameEl.textContent = `Export ${i + 1}/${fichiers.length} : ${nom}`;
+    try {
+      const chemin = dossier + '/' + nom;
+      const { content } = await window.api.readFile(chemin);
+      newTab({ path: chemin, content });
+      const html = await buildPrintableHtml(options);
+      await window.api.exportPdfTo({ html, chemin: chemin.replace(/\.[^.]+$/, '.pdf'), options });
+      faits += 1;
+    } catch {
+      echecs += 1;
+    }
+  }
+  fileNameEl.textContent = echecs
+    ? `${faits} PDF écrits, ${echecs} en échec`
+    : `${faits} PDF écrits dans ${dossier.split('/').pop()}`;
+}
+
+window.commands.register({
+  id: 'export:lot',
+  titre: 'Exporter tout un dossier en PDF',
+  executer: exporterLot,
+});

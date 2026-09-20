@@ -478,6 +478,51 @@ ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => 
   return filePath;
 });
 
+// L'export par lot boucle côté renderer — chaque document doit passer par
+// l'aperçu pour produire son HTML — et revient ici pour chaque écriture. D'où
+// un handler qui écrit à un chemin donné, sans boîte de dialogue.
+ipcMain.handle('file:export-pdf-to', async (_e, { html, chemin, options }) => {
+  const stagedHtml = await stageHtml(html);
+  const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  let restaged = null;
+  try {
+    await pdfWin.loadFile(stagedHtml);
+    let buffer = await pdfWin.webContents.printToPDF(pdfOptions(options));
+    if (hasTocSlots(html)) {
+      const pass = tocSecondPass(html, buffer);
+      if (pass.needed) {
+        restaged = await stageHtml(pass.html);
+        await pdfWin.loadFile(restaged);
+        buffer = await pdfWin.webContents.printToPDF(pdfOptions(options));
+      }
+    }
+    await fs.writeFile(chemin, buffer);
+    return { chemin };
+  } finally {
+    await fs.unlink(stagedHtml).catch(() => {});
+    if (restaged) await fs.unlink(restaged).catch(() => {});
+    try { pdfWin.close(); } catch {}
+  }
+});
+
+ipcMain.handle('folder:list-markdown', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: 'Dossier à exporter en PDF',
+  });
+  if (canceled || !filePaths.length) return null;
+  const dossier = filePaths[0];
+  const entrees = await fs.readdir(dossier, { withFileTypes: true });
+  // `MD_EXT_RE` accepte aussi `.txt`, pour l'ouverture manuelle. Un export par
+  // lot ne doit prendre que du markdown : on filtre sur `MD_EXTENSIONS`.
+  const estMarkdown = new RegExp('\\.(' + MD_EXTENSIONS.join('|') + ')$', 'i');
+  const fichiers = entrees
+    .filter((e) => e.isFile() && estMarkdown.test(e.name))
+    .map((e) => e.name)
+    .sort();
+  return { dossier, fichiers };
+});
+
 const MIME_BY_EXT = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
   '.svg': 'image/svg+xml', '.webp': 'image/webp', '.bmp': 'image/bmp', '.avif': 'image/avif',

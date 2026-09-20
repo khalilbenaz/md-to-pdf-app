@@ -835,6 +835,30 @@ app.whenReady().then(async () => {
   check('un Échap palette+focus ferme la palette sans quitter le mode focus', ec.paletteFermee && ec.toujoursActif, echapCombine);
   check('un second Échap quitte ensuite le mode focus', ec.sortiEnsuite, echapCombine);
 
+  // ── Export par lot ──────────────────────────────────────────────────────
+  const lotDir = path.join(app.getPath('temp'), `mdtopdf-lot-${Date.now()}`);
+  await fs.mkdir(lotDir, { recursive: true });
+  await fs.writeFile(path.join(lotDir, 'un.md'), '# Un\n\nTexte.\n', 'utf8');
+  await fs.writeFile(path.join(lotDir, 'deux.md'), '# Deux\n\nTexte.\n', 'utf8');
+  await fs.writeFile(path.join(lotDir, 'note.txt'), 'pas du markdown', 'utf8');
+
+  check('le handler d’écriture directe est joignable', typeof handlers['file:export-pdf-to'] === 'function');
+  check('le handler de liste markdown est joignable', typeof handlers['folder:list-markdown'] === 'function');
+
+  const htmlLot = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '# Un\\n\\nTexte.\\n' });
+    return await window.buildPrintableHtml({});
+  })()`);
+  const cible = path.join(lotDir, 'un.pdf');
+  const ecrit = await handlers['file:export-pdf-to'](null, { html: htmlLot, chemin: cible, options: {} });
+  const octets = await fs.readFile(cible).then((b) => b.length).catch(() => 0);
+  check('l’écriture directe produit un PDF', ecrit && ecrit.chemin === cible && octets > 1000, String(octets));
+
+  const commandeLot = await win.webContents.executeJavaScript(
+    `window.commands.all().some(c => c.id === 'export:lot')`);
+  check('l’export par lot est une commande', commandeLot === true);
+  await fs.rm(lotDir, { recursive: true, force: true });
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   clearTimeout(chienDeGarde);

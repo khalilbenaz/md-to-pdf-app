@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('api', {
   saveFile: (payload) => ipcRenderer.invoke('file:save', payload),
   watchFile: (p) => ipcRenderer.invoke('file:watch', p),
   exportPdf: (payload) => ipcRenderer.invoke('file:export-pdf', payload),
+  exportPdfTo: (payload) => ipcRenderer.invoke('file:export-pdf-to', payload),
+  listMarkdown: () => ipcRenderer.invoke('folder:list-markdown'),
   exportHtml: (payload) => ipcRenderer.invoke('file:export-html', payload),
   print: (payload) => ipcRenderer.invoke('file:print', payload),
   setDefaultMarkdown: () => ipcRenderer.invoke('app:set-default-md'),
