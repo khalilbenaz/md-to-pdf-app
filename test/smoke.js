@@ -10,6 +10,14 @@ const fs = require('fs/promises');
 const root = path.join(__dirname, '..');
 const results = [];
 
+// Une exécution interrompue — limite de session, terminal fermé, blocage —
+// laissait le processus Electron vivant. Il se saborde désormais de lui-même.
+const DELAI_MAX_MS = 3 * 60 * 1000;
+const chienDeGarde = setTimeout(() => {
+  console.error(`\nFAIL le test a dépassé ${DELAI_MAX_MS / 1000} s, arrêt forcé`);
+  app.exit(1);
+}, DELAI_MAX_MS);
+
 function check(name, ok, detail = '') {
   results.push({ name, ok, detail });
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${ok || !detail ? '' : ' — ' + detail}`);
@@ -527,12 +535,35 @@ app.whenReady().then(async () => {
   // prise sur les fonctions elles-mêmes. Quelques canaux sont déjà stubbés en
   // tête de ce fichier : le second enregistrement lève, sans conséquence
   // puisque c'est la référence capturée qu'on appelle.
+  // `main.js` ouvre la fenêtre principale sur `app.whenReady`. Si le test la
+  // laisse s'ouvrir et qu'une exécution est interrompue — deux fois pendant le
+  // lot A, par une limite de session — elle survit au test et reste dans le
+  // Dock de l'utilisateur, rattachée à un worktree parfois déjà supprimé.
+  const fenetresAvantChargement = BrowserWindow.getAllWindows().length;
   const handlers = {};
   const vraiHandle = ipcMain.handle.bind(ipcMain);
+  const vraiWhenReady = app.whenReady.bind(app);
+  const vraiVerrou = app.requestSingleInstanceLock.bind(app);
+
   ipcMain.handle = (channel, fn) => { handlers[channel] = fn; try { vraiHandle(channel, fn); } catch {} };
+  // `main.js` enregistre ses handlers au chargement du module, mais accroche
+  // aussi `createWindow` à `app.whenReady`. Une promesse qui ne se résout
+  // jamais laisse passer les premiers sans jamais déclencher la seconde :
+  // l'application n'a pas à porter de branche de test pour ça.
+  app.whenReady = () => new Promise(() => {});
+  // Sans ça, `npm test` lancé pendant que l'application est ouverte perd le
+  // verrou, `main.js` appelle `app.quit()` et la suite s'arrête en silence.
+  app.requestSingleInstanceLock = () => true;
+
   require(path.join(root, 'main.js'));
+
   ipcMain.handle = vraiHandle;
-  await new Promise((r) => setTimeout(r, 1500));
+  app.whenReady = vraiWhenReady;
+  app.requestSingleInstanceLock = vraiVerrou;
+  await new Promise((r) => setTimeout(r, 300));
+  check('charger main.js n’ouvre aucune fenêtre d’application',
+    BrowserWindow.getAllWindows().length === fenetresAvantChargement,
+    `avant ${fenetresAvantChargement}, après ${BrowserWindow.getAllWindows().length}`);
   check('les handlers d’export et d’impression sont joignables',
     typeof handlers['file:print'] === 'function' && typeof handlers['file:export-pdf'] === 'function',
     Object.keys(handlers).join(', '));
@@ -719,8 +750,10 @@ app.whenReady().then(async () => {
 
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
+  clearTimeout(chienDeGarde);
   app.exit(failed.length ? 1 : 0);
 }).catch(err => {
   console.error('harness error:', err);
+  clearTimeout(chienDeGarde);
   app.exit(1);
 });
