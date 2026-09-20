@@ -1,6 +1,8 @@
-// Registre des commandes de l'application. Source unique : l'interface, les
-// menus et la palette s'y abonnent au lieu de câbler des écouteurs un par un,
-// ce qui rend aussi les actions énumérables — donc testables sans cliquer.
+// Registre des commandes de l'application, lu par la palette de commandes.
+// Les boutons de l'en-tête et les menus gardent leurs propres écouteurs et
+// canaux IPC — ce registre ne les remplace pas encore. Intérêt déjà acquis :
+// les commandes qui y sont déclarées deviennent énumérables, donc testables
+// sans cliquer.
 (() => {
   const registre = [];
 
@@ -18,7 +20,17 @@
   function run(id) {
     const c = registre.find((x) => x.id === id);
     if (!c) return false;
-    c.executer();
+    // Minor 3 : un `executer` asynchrone qui rejette n'était ni attrapé ni
+    // signalé (rejet de promesse invisible). On enveloppe l'appel, pour les
+    // échecs synchrones comme pour les rejets asynchrones.
+    try {
+      const resultat = c.executer();
+      if (resultat && typeof resultat.catch === 'function') {
+        resultat.catch((erreur) => console.error(`Commande "${id}" a échoué`, erreur));
+      }
+    } catch (erreur) {
+      console.error(`Commande "${id}" a échoué`, erreur);
+    }
     return true;
   }
 

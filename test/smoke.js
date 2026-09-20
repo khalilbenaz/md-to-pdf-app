@@ -1267,6 +1267,31 @@ app.whenReady().then(async () => {
   check('Minor 1 — installer.iss annonce la même version que package.json',
     issVersion === pkgVersion, `installer.iss=${issVersion} package.json=${pkgVersion}`);
 
+  // ── Minor 3 : commands.run() doit envelopper l'exécution — un `executer`
+  // asynchrone qui rejette ne doit pas produire un rejet de promesse
+  // invisible, il doit être journalisé.
+  const messagesMinor3 = [];
+  const ecouteurMinor3 = (_e, _lvl, message) => messagesMinor3.push(message);
+  win.webContents.on('console-message', ecouteurMinor3);
+  const rejetInvisible = await win.webContents.executeJavaScript(`(async () => {
+    let vu = false;
+    window.addEventListener('unhandledrejection', () => { vu = true; });
+    window.commands.register({
+      id: 'test:echoue',
+      titre: 'Commande qui échoue',
+      executer: () => Promise.reject(new Error('échec simulé pour Minor 3')),
+    });
+    window.commands.run('test:echoue');
+    await new Promise(r => setTimeout(r, 200));
+    return JSON.stringify({ rejetNonAttrape: vu });
+  })()`);
+  win.webContents.off('console-message', ecouteurMinor3);
+  const ri = JSON.parse(rejetInvisible);
+  check('Minor 3 — un executer() asynchrone qui rejette ne produit pas de rejet non attrapé',
+    ri.rejetNonAttrape === false, rejetInvisible);
+  check('Minor 3 — l’échec est journalisé en console',
+    messagesMinor3.some((m) => m.includes('test:echoue')), JSON.stringify(messagesMinor3));
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   clearTimeout(chienDeGarde);
