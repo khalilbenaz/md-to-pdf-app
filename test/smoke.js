@@ -748,6 +748,28 @@ app.whenReady().then(async () => {
   check('le repère de saut de page ne s’imprime pas', fin.repereMasque, finitions);
   check('le titre de la page de garde n’est pas numéroté', fin.gardeNonNumerotee, finitions);
 
+  const palette = await win.webContents.executeJavaScript(`(() => {
+    const avant = window.commands.all().length;
+    let appels = 0;
+    window.commands.register({ id: 'test:demo', titre: 'Commande de démonstration', executer: () => { appels += 1; } });
+    const trouve = window.commands.filtrer('demo').map(c => c.id);
+    const flou = window.commands.filtrer('cmddm').map(c => c.id);
+    window.commands.run('test:demo');
+    window.palette.ouvrir();
+    const ouverte = !document.getElementById('palette').classList.contains('hidden');
+    window.palette.fermer();
+    const fermee = document.getElementById('palette').classList.contains('hidden');
+    return JSON.stringify({ avant, trouve, flou, appels, ouverte, fermee,
+      inconnue: window.commands.run('test:inexistante') });
+  })()`);
+  const pal = JSON.parse(palette);
+  check('des commandes sont enregistrées au démarrage', pal.avant > 0, palette);
+  check('la recherche retrouve une commande par son titre', pal.trouve.includes('test:demo'), palette);
+  check('la recherche est floue, pas littérale', pal.flou.includes('test:demo'), palette);
+  check('exécuter une commande par son identifiant l’appelle', pal.appels === 1, palette);
+  check('une commande inconnue ne lève pas', pal.inconnue === false, palette);
+  check('la palette s’ouvre et se ferme', pal.ouverte && pal.fermee, palette);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   clearTimeout(chienDeGarde);

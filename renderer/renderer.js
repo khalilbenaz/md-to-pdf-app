@@ -714,3 +714,83 @@ sequenceDiagram
 \`\`\`
 ` });
 markClean();
+
+// ---------- Palette de commandes ----------
+// `Cmd/Ctrl+K` est déjà pris par l'insertion de lien : la palette prend
+// `Cmd/Ctrl+Shift+P`.
+const paletteEl = document.getElementById('palette');
+const paletteRequete = document.getElementById('palette-requete');
+const paletteListe = document.getElementById('palette-liste');
+let paletteIndex = 0;
+
+function paletteRendu() {
+  const resultats = window.commands.filtrer(paletteRequete.value);
+  paletteIndex = Math.min(paletteIndex, Math.max(0, resultats.length - 1));
+  paletteListe.innerHTML = '';
+  resultats.forEach((c, i) => {
+    const li = document.createElement('li');
+    li.className = i === paletteIndex ? 'actif' : '';
+    const titre = document.createElement('span');
+    titre.textContent = c.titre;
+    li.appendChild(titre);
+    if (c.raccourci) {
+      const kbd = document.createElement('kbd');
+      kbd.textContent = c.raccourci;
+      li.appendChild(kbd);
+    }
+    li.addEventListener('click', () => { fermerPalette(); window.commands.run(c.id); });
+    paletteListe.appendChild(li);
+  });
+  return resultats;
+}
+
+function ouvrirPalette() {
+  paletteIndex = 0;
+  paletteRequete.value = '';
+  paletteEl.classList.remove('hidden');
+  paletteRendu();
+  paletteRequete.focus();
+}
+
+function fermerPalette() {
+  paletteEl.classList.add('hidden');
+}
+
+paletteRequete.addEventListener('input', () => { paletteIndex = 0; paletteRendu(); });
+paletteRequete.addEventListener('keydown', (e) => {
+  const resultats = window.commands.filtrer(paletteRequete.value);
+  if (e.key === 'Escape') { e.preventDefault(); fermerPalette(); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); paletteIndex = Math.min(paletteIndex + 1, resultats.length - 1); paletteRendu(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); paletteIndex = Math.max(paletteIndex - 1, 0); paletteRendu(); }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    const choisi = resultats[paletteIndex];
+    fermerPalette();
+    if (choisi) window.commands.run(choisi.id);
+  }
+});
+paletteEl.addEventListener('click', (e) => { if (e.target === paletteEl) fermerPalette(); });
+
+window.palette = { ouvrir: ouvrirPalette, fermer: fermerPalette };
+
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
+    e.preventDefault();
+    ouvrirPalette();
+  }
+});
+
+// Les actions déjà existantes deviennent des commandes : la palette n'invente
+// rien, elle rend joignable ce que les boutons et les menus font déjà.
+for (const c of [
+  { id: 'fichier:nouveau', titre: 'Nouvel onglet', raccourci: 'Cmd+N', executer: () => { newTab(); markClean(); } },
+  { id: 'fichier:ouvrir', titre: 'Ouvrir un fichier', raccourci: 'Cmd+O', executer: openFile },
+  { id: 'fichier:dossier', titre: 'Ouvrir un dossier', raccourci: 'Cmd+Shift+O', executer: openFolder },
+  { id: 'fichier:enregistrer', titre: 'Enregistrer', raccourci: 'Cmd+S', executer: saveFile },
+  { id: 'export:pdf', titre: 'Exporter en PDF', raccourci: 'Cmd+E', executer: showPdfModal },
+  { id: 'export:html', titre: 'Exporter en HTML', raccourci: 'Cmd+Shift+E', executer: doExportHtml },
+  { id: 'export:imprimer', titre: 'Imprimer', raccourci: 'Cmd+P', executer: doPrint },
+  { id: 'vue:code', titre: 'Afficher ou masquer le volet code', raccourci: 'Cmd+/', executer: () => { toggleEditor.checked = !toggleEditor.checked; toggleEditor.dispatchEvent(new Event('change')); } },
+  { id: 'vue:theme', titre: 'Basculer le thème clair ou sombre', raccourci: 'Cmd+T', executer: () => document.getElementById('btn-theme').click() },
+  { id: 'vue:panneau', titre: 'Afficher ou masquer le panneau latéral', executer: () => document.getElementById('btn-sidebar').click() },
+]) window.commands.register(c);
