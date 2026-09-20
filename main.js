@@ -455,10 +455,15 @@ ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => 
   });
   if (canceled || !filePath) return null;
 
-  const stagedHtml = await stageHtml(html);
+  // Minor 2 : stageHtml() écrit sur le disque. L'appeler avant le `try` (et
+  // avant la création de la fenêtre) laissait le fichier temporaire orphelin
+  // si la création de la fenêtre levait ensuite — `file:print` a le bon
+  // motif (la variable est déclarée dehors, assignée dedans) : repris ici.
   const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  let stagedHtml;
   let restaged;
   try {
+    stagedHtml = await stageHtml(html);
     await pdfWin.loadFile(stagedHtml);
     // Les numéros de page ne s'obtiennent que du PDF lui-même : `offsetTop` se
     // trompe dès qu'une règle de pagination déplace un élément. On rend donc une
@@ -475,7 +480,7 @@ ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => 
   } finally {
     // Les suppressions avant la fermeture : sur une fenêtre déjà détruite,
     // `close()` lève, et les fichiers temporaires restaient alors sur le disque.
-    await fs.unlink(stagedHtml).catch(() => {});
+    if (stagedHtml) await fs.unlink(stagedHtml).catch(() => {});
     if (restaged) await fs.unlink(restaged).catch(() => {});
     try { pdfWin.close(); } catch {}
   }
@@ -504,10 +509,14 @@ ipcMain.handle('file:export-pdf-to', async (_e, { html, chemin, options }) => {
   // donc nous-mêmes si le fichier existait déjà, pour que l'appelant (le lot,
   // côté renderer) puisse le signaler plutôt que d'écraser en silence.
   const remplace = existsSync(chemin);
-  const stagedHtml = await stageHtml(html);
+  // Minor 2 : même motif que file:print — stageHtml() (une écriture disque)
+  // s'exécute dans le try, pas avant, sinon un échec de création de fenêtre
+  // laisserait le fichier temporaire orphelin.
   const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  let stagedHtml;
   let restaged = null;
   try {
+    stagedHtml = await stageHtml(html);
     await pdfWin.loadFile(stagedHtml);
     let buffer = await pdfWin.webContents.printToPDF(pdfOptions(options));
     if (hasTocSlots(html)) {
@@ -521,7 +530,7 @@ ipcMain.handle('file:export-pdf-to', async (_e, { html, chemin, options }) => {
     await fs.writeFile(chemin, buffer);
     return { chemin, remplace };
   } finally {
-    await fs.unlink(stagedHtml).catch(() => {});
+    if (stagedHtml) await fs.unlink(stagedHtml).catch(() => {});
     if (restaged) await fs.unlink(restaged).catch(() => {});
     try { pdfWin.close(); } catch {}
   }
