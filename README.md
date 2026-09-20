@@ -35,6 +35,8 @@ Construit avec [Electron](https://www.electronjs.org/) + [CodeMirror 6](https://
 ### Édition
 - **Éditeur CodeMirror 6** : coloration Markdown, numéros de ligne, pliage de titres, multi-curseurs, recherche intégrée (`Cmd/Ctrl+F`)
 - **Raccourcis de formatage** : gras, italique, lien, souligné (`Cmd/Ctrl` + `B` / `I` / `K` / `U`)
+- **Palette de commandes** (`Cmd/Ctrl+Shift+P`) : toutes les actions de l'application, joignables au clavier, avec recherche floue
+- **Mode focus** : masque l'habillage et centre le texte sur une largeur de lecture ; `Échap` en sort, ou ferme d'abord la palette de commandes si elle est ouverte
 - **Front-matter YAML** reconnu et masqué de l'aperçu (`--- title: … ---`)
 - **Statistiques live** : nombre de mots, de caractères et temps de lecture estimé
 
@@ -73,6 +75,7 @@ Construit avec [Electron](https://www.electronjs.org/) + [CodeMirror 6](https://
 - **Options mémorisées** d'un export à l'autre
 - **Impression directe** (`Cmd/Ctrl+P`) vers l'imprimante système
 - **Export HTML** autonome : styles **et images** embarqués (data URI), le fichier reste lisible une fois envoyé à quelqu'un d'autre
+- **Export par lot** : un dossier entier converti en PDF, un fichier à la fois, chaque PDF écrit à côté de son source. L'export refuse de démarrer si un onglet porte des modifications non enregistrées, pour ne jamais produire un PDF divergent de ce qui est affiché. Le message final compte les PDF écrits, ceux qui remplaçaient un PDF existant, et signale en conflit tout fichier dont le PDF cible était déjà pris par un autre (par exemple `note.md` et `note.markdown` visant le même `note.pdf` : le fichier gardé est celui qui vient en premier dans l'ordre alphabétique — ici `note.markdown` avant `note.md` — l'autre est ignoré et compté en conflit). Sa progression s'affiche dans la barre d'outils et dans une notification dédiée qui reste visible même en mode focus
 - Les exports reprennent l'aperçu tel quel — KaTeX déjà composé, diagrammes déjà rendus en SVG
 
 ### Sécurité & confidentialité
@@ -145,6 +148,7 @@ La fenêtre s'ouvre **maximisée** au démarrage.
 | Export PDF | `Cmd/Ctrl+E` |
 | Export HTML | `Cmd/Ctrl+Shift+E` |
 | Imprimer | `Cmd/Ctrl+P` |
+| Palette de commandes | `Cmd/Ctrl+Shift+P` |
 | Basculer volet code | `Cmd/Ctrl+/` |
 | Basculer thème | `Cmd/Ctrl+T` |
 | Rechercher (dans l'éditeur) | `Cmd/Ctrl+F` |
@@ -254,6 +258,7 @@ md-to-pdf-app/
 ├── renderer/
 │   ├── index.html              # Shell de l'UI
 │   ├── styles.css              # Thèmes clair/sombre, layout en grille
+│   ├── commands.js             # Registre des commandes lu par la palette (boutons/menus/accélérateurs restent câblés séparément)
 │   ├── editor-src.js           # Source CodeMirror 6 (bundlée par esbuild)
 │   ├── editor-bundle.js        # Bundle généré (ignoré par git)
 │   ├── markdown/               # Moteur de rendu : parse.js, enhance.js, labels.js, icons.js

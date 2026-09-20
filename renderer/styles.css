@@ -336,3 +336,99 @@ main.no-sidebar.no-editor { grid-template-columns: 1fr; }
 @media print {
   .pdf-watermark { position: fixed; }
 }
+
+/* ---------- Palette de commandes ---------- */
+#palette {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  z-index: 1000;
+}
+#palette.hidden { display: none; }
+#palette .palette-boite {
+  width: min(560px, 90vw);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+#palette input {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0.9rem 1rem;
+  font-size: 1rem;
+  background: var(--bg);
+  color: var(--fg);
+  outline: none;
+}
+#palette ul { list-style: none; margin: 0; padding: 0.3rem; max-height: 50vh; overflow-y: auto; }
+#palette li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--fg);
+}
+#palette li.actif { background: var(--accent); color: var(--accent-fg); }
+#palette li kbd {
+  font-size: 0.78em;
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+}
+#palette li.actif kbd { color: var(--accent-fg); border-color: var(--accent-fg); }
+
+/* ---------- Mode focus ---------- */
+body.focus header,
+body.focus #tabs,
+body.focus #sidebar,
+body.focus #editor,
+body.focus #statusbar { display: none !important; }
+body.focus main {
+  grid-template-columns: 1fr !important;
+}
+body.focus #preview {
+  /* `width: 100%` d'abord : sans valeur explicite, `margin: auto` sur un
+     élément de grille désactive l'étirement (« stretch ») et retombe sur un
+     ajustement au contenu (« fit-content ») — un document ne portant qu'un
+     titre court se retrouvait dans une colonne collée à sa largeur de texte
+     au lieu de la largeur de lecture visée. Une largeur explicite rend la
+     boîte à taille déterminée, et `max-width` + `margin: auto` la centrent
+     normalement au lieu de la faire flotter avec le contenu. */
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+}
+
+/* ---------- Notification du lot ---------- */
+/* Volontairement en dehors de tout ce que body.focus masque : un export par
+   lot lancé en mode focus doit rester visible (refus, progression, résumé). */
+#lot-notification {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--header-bg);
+  color: var(--header-fg);
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  max-width: 80vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  z-index: 2000;
+}
+#lot-notification.hidden { display: none; }

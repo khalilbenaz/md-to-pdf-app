@@ -21,6 +21,29 @@ const fileNameEl = document.getElementById('file-name');
 const statsEl = document.getElementById('stats');
 const cursorEl = document.getElementById('cursor-pos');
 const dirtyEl = document.getElementById('dirty-indicator');
+const lotNotification = document.getElementById('lot-notification');
+
+// I6 : l'en-tête (où vit fileNameEl) est masqué par le mode focus. Un lot
+// lancé en mode focus n'affichait donc rien — ni sélecteur, ni refus. Les
+// messages du lot passent par ce conteneur en plus de l'en-tête, jamais
+// masqué par le mode focus.
+// Régression signalée en relecture : la notification ne se refermait jamais
+// (rien ne remettait `hidden`), restant affichée en permanence après le
+// premier export par lot. Chaque appel réarme un délai d'effacement ; tant
+// que le lot envoie des messages de progression, il se réarme et reste
+// visible, puis s'efface tout seul un délai raisonnable après le dernier
+// message (le refus ou le résumé), assez long pour être lu.
+const DELAI_EFFACEMENT_NOTIFICATION_LOT_MS = 4000;
+let minuteurEffacementLot = null;
+function annoncerLot(message) {
+  fileNameEl.textContent = message;
+  lotNotification.textContent = message;
+  lotNotification.classList.remove('hidden');
+  clearTimeout(minuteurEffacementLot);
+  minuteurEffacementLot = setTimeout(() => {
+    lotNotification.classList.add('hidden');
+  }, DELAI_EFFACEMENT_NOTIFICATION_LOT_MS);
+}
 
 // ---------- State ----------
 let tabs = [];
@@ -87,6 +110,10 @@ function setActiveTab(t) {
 }
 
 function closeTab(t) {
+  // L'onglet de travail d'un lot en cours ne se ferme pas : la prochaine
+  // itération le réactiverait alors qu'il n'existe plus dans `tabs`. Le
+  // refus a lieu avant la confirmation de perte de modifications, pas après.
+  if (t === tabDuLot) return;
   if (t.dirty && !confirm('Fermer l\'onglet sans enregistrer ?')) return;
   const i = tabs.indexOf(t);
   tabs.splice(i, 1);
@@ -216,6 +243,9 @@ async function openFile() {
 
 async function saveFile() {
   if (!activeTab) return;
+  // L'onglet de travail d'un lot vise le fichier source en cours de
+  // traitement : l'enregistrer écrirait dedans par-dessus le lot lui-même.
+  if (activeTab === tabDuLot) return;
   const saved = await window.api.saveFile({ filePath: activeTab.path, content: editor.getValue() });
   if (saved) {
     activeTab.path = saved;
@@ -230,8 +260,12 @@ async function saveFile() {
 let autosaveTimer;
 function scheduleAutosave() {
   if (!document.getElementById('toggle-autosave').checked) return;
+  // Suspendu pendant un lot : l'onglet actif est alors l'onglet de travail,
+  // dont le `path` désigne un fichier source du lot — une frappe pendant le
+  // lot ne doit jamais programmer une écriture dessus.
+  if (lotEnCours) return;
   clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(() => { if (activeTab?.path && activeTab.dirty) saveFile(); }, 2000);
+  autosaveTimer = setTimeout(() => { if (!lotEnCours && activeTab?.path && activeTab.dirty) saveFile(); }, 2000);
 }
 
 // ---------- Folder tree ----------
@@ -714,3 +748,287 @@ sequenceDiagram
 \`\`\`
 ` });
 markClean();
+
+// ---------- Palette de commandes ----------
+// `Cmd/Ctrl+K` est déjà pris par l'insertion de lien : la palette prend
+// `Cmd/Ctrl+Shift+P`.
+const paletteEl = document.getElementById('palette');
+const paletteRequete = document.getElementById('palette-requete');
+const paletteListe = document.getElementById('palette-liste');
+let paletteIndex = 0;
+let paletteFocusPrecedent = null;
+
+function paletteRendu() {
+  const resultats = window.commands.filtrer(paletteRequete.value);
+  paletteIndex = Math.min(paletteIndex, Math.max(0, resultats.length - 1));
+  paletteListe.innerHTML = '';
+  resultats.forEach((c, i) => {
+    const li = document.createElement('li');
+    li.className = i === paletteIndex ? 'actif' : '';
+    const titre = document.createElement('span');
+    titre.textContent = c.titre;
+    li.appendChild(titre);
+    if (c.raccourci) {
+      const kbd = document.createElement('kbd');
+      kbd.textContent = c.raccourci;
+      li.appendChild(kbd);
+    }
+    li.addEventListener('click', () => { fermerPalette(); window.commands.run(c.id); });
+    paletteListe.appendChild(li);
+  });
+  return resultats;
+}
+
+function ouvrirPalette() {
+  // Minor 4 : un second appel pendant que la palette est déjà ouverte
+  // écrasait la mémoire du focus précédent avec `paletteRequete`
+  // elle-même (activeElement à ce moment), puisqu'elle a le focus. La
+  // fermeture rendait alors le focus au champ de la palette, pas à ce qui
+  // l'avait avant sa toute première ouverture. Idempotent : un second appel
+  // ne fait rien de plus.
+  if (!paletteEl.classList.contains('hidden')) return;
+  // Mémorisé pour le rendre à la fermeture, comme une boîte de dialogue :
+  // ça marche quelle que soit la configuration de l'interface, sans
+  // supposer que l'éditeur est visible.
+  paletteFocusPrecedent = document.activeElement;
+  paletteIndex = 0;
+  paletteRequete.value = '';
+  paletteEl.classList.remove('hidden');
+  paletteRendu();
+  paletteRequete.focus();
+}
+
+function estFocusable(el) {
+  return !!el && el !== document.body && document.contains(el) && el.offsetParent !== null;
+}
+
+function fermerPalette() {
+  paletteEl.classList.add('hidden');
+  // `display: none` fait perdre le focus : sans ça, il faut recliquer dans
+  // le document après chaque commande. On rend le focus à ce qui l'avait
+  // avant l'ouverture ; s'il n'est plus focusable (masqué, retiré du DOM),
+  // repli sur l'éditeur s'il existe.
+  const precedent = paletteFocusPrecedent;
+  paletteFocusPrecedent = null;
+  if (estFocusable(precedent)) precedent.focus();
+  else if (editor) editor.focus();
+}
+
+paletteRequete.addEventListener('input', () => { paletteIndex = 0; paletteRendu(); });
+paletteRequete.addEventListener('keydown', (e) => {
+  const resultats = window.commands.filtrer(paletteRequete.value);
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fermerPalette(); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); paletteIndex = Math.min(paletteIndex + 1, resultats.length - 1); paletteRendu(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); paletteIndex = Math.max(paletteIndex - 1, 0); paletteRendu(); }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    const choisi = resultats[paletteIndex];
+    fermerPalette();
+    if (choisi) window.commands.run(choisi.id);
+  }
+});
+paletteEl.addEventListener('click', (e) => { if (e.target === paletteEl) fermerPalette(); });
+
+window.palette = { ouvrir: ouvrirPalette, fermer: fermerPalette };
+
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
+    e.preventDefault();
+    ouvrirPalette();
+  }
+});
+
+// Les actions déjà existantes deviennent des commandes : la palette n'invente
+// rien, elle rend joignable ce que les boutons et les menus font déjà.
+// I5 : les raccourcis affichés étaient des littéraux `Cmd+…`, faux hors
+// macOS — l'application livre aussi un installeur Windows. Le modificateur
+// se déduit de la plateforme (exposée par le préchargement).
+const MOD = window.api.platform === 'darwin' ? 'Cmd' : 'Ctrl';
+for (const c of [
+  { id: 'fichier:nouveau', titre: 'Nouvel onglet', raccourci: `${MOD}+N`, executer: () => { newTab(); markClean(); } },
+  { id: 'fichier:ouvrir', titre: 'Ouvrir un fichier', raccourci: `${MOD}+O`, executer: openFile },
+  { id: 'fichier:dossier', titre: 'Ouvrir un dossier', raccourci: `${MOD}+Shift+O`, executer: openFolder },
+  { id: 'fichier:enregistrer', titre: 'Enregistrer', raccourci: `${MOD}+S`, executer: saveFile },
+  { id: 'export:pdf', titre: 'Exporter en PDF', raccourci: `${MOD}+E`, executer: showPdfModal },
+  { id: 'export:html', titre: 'Exporter en HTML', raccourci: `${MOD}+Shift+E`, executer: doExportHtml },
+  { id: 'export:imprimer', titre: 'Imprimer', raccourci: `${MOD}+P`, executer: doPrint },
+  { id: 'vue:code', titre: 'Afficher ou masquer le volet code', raccourci: `${MOD}+/`, executer: () => { toggleEditor.checked = !toggleEditor.checked; toggleEditor.dispatchEvent(new Event('change')); } },
+  { id: 'vue:theme', titre: 'Basculer le thème clair ou sombre', raccourci: `${MOD}+T`, executer: () => document.getElementById('btn-theme').click() },
+  { id: 'vue:panneau', titre: 'Afficher ou masquer le panneau latéral', executer: () => document.getElementById('btn-sidebar').click() },
+]) window.commands.register(c);
+
+// ---------- Mode focus ----------
+// Volontairement non mémorisé : on entre en mode focus pour une session de
+// travail, pas pour toujours.
+function basculerFocus(actif) {
+  const veut = actif === undefined ? !document.body.classList.contains('focus') : actif;
+  document.body.classList.toggle('focus', veut);
+}
+
+window.commands.register({
+  id: 'vue:focus',
+  titre: 'Mode focus (masquer l’habillage)',
+  executer: () => basculerFocus(),
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  // Un Échap par couche, la plus interne d'abord. La palette gère son propre
+  // Échap sur son champ (avec stopPropagation) : si l'événement arrive
+  // jusqu'ici, c'est qu'elle n'avait pas le focus. La modale PDF est la
+  // couche suivante — sans ce cas, Échap en mode focus quittait le mode focus
+  // et faisait réapparaître l'habillage derrière une modale restée ouverte.
+  if (!pdfModal.classList.contains('hidden')) {
+    e.stopPropagation();
+    hidePdfModal();
+    return;
+  }
+  // Ici on ne fait rien de plus pour éviter qu'un seul Échap ferme deux
+  // couches à la fois.
+  if (document.body.classList.contains('focus') && paletteEl.classList.contains('hidden')) {
+    basculerFocus(false);
+  }
+});
+
+// ---------- Export par lot ----------
+// Deux extensions markdown différentes peuvent viser le même PDF (nom.md et
+// nom.markdown) : la seconde écraserait la première en silence, et le message
+// final mentirait sur le nombre de PDF réellement écrits. On détecte la
+// collision avant de commencer — le premier nom rencontré gagne, les
+// suivants visant le même PDF sont ignorés et comptés comme conflits.
+function detecterConflitsLot(fichiers) {
+  const cibles = new Set();
+  const aTraiter = [];
+  let conflits = 0;
+  for (const nom of fichiers) {
+    const pdf = nom.replace(/\.[^.]+$/, '.pdf');
+    if (cibles.has(pdf)) { conflits += 1; continue; }
+    cibles.add(pdf);
+    aTraiter.push(nom);
+  }
+  return { aTraiter, conflits };
+}
+
+// Un seul onglet de travail pour tout le lot, réutilisé pour chaque fichier
+// (son `path` et son contenu sont tenus à jour, dont `resolveLocalImages()`
+// et `baseTag()` ont besoin pour résoudre les images relatives au bon
+// dossier) — sinon un dossier de trente fichiers laisserait trente onglets
+// derrière lui, l'onglet actif final noyant le document de l'utilisateur.
+// Il est fermé à la fin, y compris en cas d'erreur, et la main revient à
+// l'onglet d'origine. Un fichier en échec n'interrompt pas le lot, il est
+// compté.
+//
+// Réentrance : rien dans l'interface n'empêchait un second appel pendant
+// qu'un lot tournait déjà. L'onglet de travail et `activeTab` sont partagés
+// par tout ce que la boucle appelle (buildPrintableHtml() lit
+// `preview.innerHTML` après plusieurs `await`) : deux lots entrelacés se
+// marchent dessus et un PDF peut recevoir le contenu d'un autre fichier,
+// sans qu'aucun compteur ne le voie. Un second appel doit donc refuser de
+// démarrer, et le dire.
+let lotEnCours = false;
+// L'onglet de travail vise successivement chaque fichier source du lot :
+// l'enregistrement automatique (markDirty()/scheduleAutosave()) et la
+// fermeture d'onglet (closeTab(), y compris via Cmd+W) le vérifient pour se
+// suspendre pendant sa durée de vie.
+let tabDuLot = null;
+
+async function exporterLot() {
+  if (lotEnCours) {
+    annoncerLot('Un export par lot est déjà en cours');
+    return;
+  }
+  lotEnCours = true;
+  try {
+    // Le lot relit chaque fichier depuis le disque : des modifications non
+    // enregistrées dans un onglet quelconque seraient ignorées en silence par
+    // le PDF produit. On refuse donc de démarrer plutôt que de diverger
+    // silencieusement entre ce que l'utilisateur voit et ce qui est écrit.
+    if (tabs.some((t) => t.dirty)) {
+      annoncerLot('Enregistrez les modifications en cours avant un export par lot');
+      return;
+    }
+    const choix = await window.api.listMarkdown();
+    if (!choix) return;
+    const { dossier, fichiers } = choix;
+    if (!fichiers.length) {
+      annoncerLot('Aucun fichier markdown dans ce dossier');
+      return;
+    }
+    // Un chemin Windows est reconnaissable à son antislash ; sinon, `/`.
+    const separateur = dossier.includes('\\') ? '\\' : '/';
+    const { aTraiter, conflits } = detecterConflitsLot(fichiers);
+    const options = readPdfOptions();
+    const tabOrigine = activeTab;
+    const tabTravail = newTab({});
+    tabDuLot = tabTravail;
+    let faits = 0;
+    let echecs = 0;
+    let remplaces = 0;
+    // La spec promet des échecs « comptés et signalés » : un `catch` muet ne
+    // signale rien. On journalise le fichier et l'erreur, et on nomme le
+    // premier fichier fautif dans le message final — le seul qu'un
+    // utilisateur pressé lira vraiment.
+    let premierEchec = null;
+    try {
+      for (const [i, nom] of aTraiter.entries()) {
+        annoncerLot(`Export ${i + 1}/${aTraiter.length} : ${nom}`);
+        try {
+          const chemin = dossier + separateur + nom;
+          const { content } = await window.api.readFile(chemin);
+          tabTravail.path = chemin;
+          tabTravail.content = content;
+          setActiveTab(tabTravail);
+          const html = await buildPrintableHtml(options);
+          const resultat = await window.api.exportPdfTo({
+            html, chemin: chemin.replace(/\.[^.]+$/, '.pdf'), options,
+          });
+          if (resultat && resultat.remplace) remplaces += 1;
+          faits += 1;
+        } catch (erreur) {
+          console.error(`Export par lot : échec sur ${nom}`, erreur);
+          if (!premierEchec) premierEchec = nom;
+          echecs += 1;
+        }
+      }
+    } finally {
+      tabDuLot = null;
+      const i = tabs.indexOf(tabTravail);
+      if (i !== -1) tabs.splice(i, 1);
+      if (tabOrigine && tabs.includes(tabOrigine)) {
+        setActiveTab(tabOrigine);
+      } else if (tabs.length) {
+        setActiveTab(tabs[tabs.length - 1]);
+      } else {
+        activeTab = null;
+        suppressChange = true; editor.setValue(''); suppressChange = false;
+        preview.innerHTML = '';
+        fileNameEl.textContent = 'Sans titre';
+        renderTabs();
+        // Minor 5 : cette branche court-circuite setActiveTab(), qui est le
+        // seul endroit qui rappelle sinon watchFile() — sans cet appel, le
+        // processus principal continuait de surveiller le dernier fichier
+        // du lot alors qu'aucun onglet ne le représente plus.
+        window.api.watchFile(null);
+      }
+    }
+
+    const dossierNom = dossier.split(separateur).pop();
+    if (!remplaces && !echecs && !conflits) {
+      annoncerLot(`${faits} PDF écrits dans ${dossierNom}`);
+    } else {
+      const morceaux = [`${faits} PDF écrits`];
+      if (remplaces) morceaux.push(`${remplaces} remplacés`);
+      if (echecs) morceaux.push(`${echecs} en échec (dont ${premierEchec})`);
+      if (conflits) morceaux.push(`${conflits} ignorés (conflit de nom)`);
+      annoncerLot(morceaux.join(', '));
+    }
+  } finally {
+    lotEnCours = false;
+  }
+}
+
+window.commands.register({
+  id: 'export:lot',
+  titre: 'Exporter tout un dossier en PDF',
+  executer: exporterLot,
+});

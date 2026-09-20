@@ -10,6 +10,14 @@ const fs = require('fs/promises');
 const root = path.join(__dirname, '..');
 const results = [];
 
+// Une exécution interrompue — limite de session, terminal fermé, blocage —
+// laissait le processus Electron vivant. Il se saborde désormais de lui-même.
+const DELAI_MAX_MS = 3 * 60 * 1000;
+const chienDeGarde = setTimeout(() => {
+  console.error(`\nFAIL le test a dépassé ${DELAI_MAX_MS / 1000} s, arrêt forcé`);
+  app.exit(1);
+}, DELAI_MAX_MS);
+
 function check(name, ok, detail = '') {
   results.push({ name, ok, detail });
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${ok || !detail ? '' : ' — ' + detail}`);
@@ -527,12 +535,57 @@ app.whenReady().then(async () => {
   // prise sur les fonctions elles-mêmes. Quelques canaux sont déjà stubbés en
   // tête de ce fichier : le second enregistrement lève, sans conséquence
   // puisque c'est la référence capturée qu'on appelle.
+  // `main.js` ouvre la fenêtre principale sur `app.whenReady`. Si le test la
+  // laisse s'ouvrir et qu'une exécution est interrompue — deux fois pendant le
+  // lot A, par une limite de session — elle survit au test et reste dans le
+  // Dock de l'utilisateur, rattachée à un worktree parfois déjà supprimé.
+  const fenetresAvantChargement = BrowserWindow.getAllWindows().length;
   const handlers = {};
   const vraiHandle = ipcMain.handle.bind(ipcMain);
+  const vraiWhenReady = app.whenReady.bind(app);
+  const vraiVerrou = app.requestSingleInstanceLock.bind(app);
+  const vraiOn = app.on.bind(app);
+
   ipcMain.handle = (channel, fn) => { handlers[channel] = fn; try { vraiHandle(channel, fn); } catch {} };
+  // `main.js` enregistre ses handlers au chargement du module, mais accroche
+  // aussi `createWindow` à `app.whenReady`. Une promesse qui ne se résout
+  // jamais laisse passer les premiers sans jamais déclencher la seconde :
+  // l'application n'a pas à porter de branche de test pour ça.
+  app.whenReady = () => new Promise(() => {});
+  // Sans ça, `npm test` lancé pendant que l'application est ouverte perd le
+  // verrou, `main.js` appelle `app.quit()` et la suite s'arrête en silence.
+  app.requestSingleInstanceLock = () => true;
+  // I1 : `app.on` n'était pas neutralisé. Le verrou étant stubé à vrai,
+  // `main.js` enregistre pour de vrai `window-all-closed`, qui appelle
+  // `app.quit()` sur Linux et Windows — deux des trois OS de la CI — dès que
+  // la dernière fenêtre se ferme. Une vérification qui ferme transitoirement
+  // la dernière fenêtre ferait alors sortir `npm test` en code 0 sur une
+  // suite tronquée, sans le moindre récapitulatif. On capture les
+  // écouteurs sans jamais les poser pour de vrai, comme pour `ipcMain.handle`
+  // côté enregistrement, restauré ensuite comme les trois autres.
+  const ecouteursApp = {};
+  // Electron pose lui-même, dès le démarrage du processus, un écouteur
+  // interne par défaut sur `window-all-closed` (qui ne quitte que si c'est le
+  // SEUL écouteur restant) : le compte de référence n'est donc pas zéro, mais
+  // celui d'avant le chargement de `main.js`.
+  const ecouteursReelsAvant = app.listenerCount('window-all-closed');
+  app.on = (evenement, fn) => { (ecouteursApp[evenement] = ecouteursApp[evenement] || []).push(fn); return app; };
+
   require(path.join(root, 'main.js'));
+
   ipcMain.handle = vraiHandle;
-  await new Promise((r) => setTimeout(r, 1500));
+  app.whenReady = vraiWhenReady;
+  app.requestSingleInstanceLock = vraiVerrou;
+  app.on = vraiOn;
+  await new Promise((r) => setTimeout(r, 300));
+  check('charger main.js n’ouvre aucune fenêtre d’application',
+    BrowserWindow.getAllWindows().length === fenetresAvantChargement,
+    `avant ${fenetresAvantChargement}, après ${BrowserWindow.getAllWindows().length}`);
+  check('I1 — charger main.js n’attache aucun vrai écouteur window-all-closed (app.on neutralisé)',
+    app.listenerCount('window-all-closed') === ecouteursReelsAvant,
+    `avant=${ecouteursReelsAvant} après=${app.listenerCount('window-all-closed')}`);
+  check('I1 — l’écouteur window-all-closed de main.js a bien été intercepté par le test',
+    (ecouteursApp['window-all-closed'] || []).length > 0, JSON.stringify(Object.keys(ecouteursApp)));
   check('les handlers d’export et d’impression sont joignables',
     typeof handlers['file:print'] === 'function' && typeof handlers['file:export-pdf'] === 'function',
     Object.keys(handlers).join(', '));
@@ -717,10 +770,624 @@ app.whenReady().then(async () => {
   check('le repère de saut de page ne s’imprime pas', fin.repereMasque, finitions);
   check('le titre de la page de garde n’est pas numéroté', fin.gardeNonNumerotee, finitions);
 
+  const palette = await win.webContents.executeJavaScript(`(() => {
+    const avant = window.commands.all().length;
+    let appels = 0;
+    window.commands.register({ id: 'test:demo', titre: 'Commande de démonstration', executer: () => { appels += 1; } });
+    const trouve = window.commands.filtrer('demo').map(c => c.id);
+    const flou = window.commands.filtrer('cmddm').map(c => c.id);
+    window.commands.run('test:demo');
+    window.palette.ouvrir();
+    const ouverte = !document.getElementById('palette').classList.contains('hidden');
+    window.palette.fermer();
+    const fermee = document.getElementById('palette').classList.contains('hidden');
+    return JSON.stringify({ avant, trouve, flou, appels, ouverte, fermee,
+      inconnue: window.commands.run('test:inexistante') });
+  })()`);
+  const pal = JSON.parse(palette);
+  check('des commandes sont enregistrées au démarrage', pal.avant > 0, palette);
+  check('la recherche retrouve une commande par son titre', pal.trouve.includes('test:demo'), palette);
+  check('la recherche est floue, pas littérale', pal.flou.includes('test:demo'), palette);
+  check('exécuter une commande par son identifiant l’appelle', pal.appels === 1, palette);
+  check('une commande inconnue ne lève pas', pal.inconnue === false, palette);
+  check('la palette s’ouvre et se ferme', pal.ouverte && pal.fermee, palette);
+
+  // Configuration PAR DÉFAUT : le volet éditeur est masqué au démarrage
+  // (`codePaneVisible` absent du localStorage), donc `editor.focus()` seul
+  // serait un no-op. On mémorise plutôt ce qui avait le focus avant
+  // l'ouverture — ici un bouton de la barre d'outils — et on vérifie qu'on
+  // le retrouve à la fermeture, sans rien supposer de l'état du volet code.
+  const focusDefaut = await win.webContents.executeJavaScript(`(() => {
+    const bouton = document.getElementById('btn-theme');
+    bouton.focus();
+    window.palette.ouvrir();
+    window.palette.fermer();
+    return JSON.stringify({ rendu: document.activeElement === bouton });
+  })()`);
+  const fd = JSON.parse(focusDefaut);
+  check('fermer la palette rend le focus à ce qui l’avait, volet éditeur masqué', fd.rendu, focusDefaut);
+
+  const focus = await win.webContents.executeJavaScript(`(() => {
+    const etaitActif = document.body.classList.contains('focus');
+    window.commands.run('vue:focus');
+    const actif = document.body.classList.contains('focus');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const sorti = !document.body.classList.contains('focus');
+    return JSON.stringify({ etaitActif, actif, sorti,
+      commande: window.commands.all().some(c => c.id === 'vue:focus') });
+  })()`);
+  const fo = JSON.parse(focus);
+  check('le mode focus est une commande', fo.commande, focus);
+  check('il n’est pas actif au démarrage', !fo.etaitActif, focus);
+  check('la commande l’active', fo.actif, focus);
+  check('Échap en sort', fo.sorti, focus);
+
+  // Second cas : le volet éditeur est visible et c'est lui qui avait le
+  // focus avant l'ouverture de la palette — la restitution doit aussi
+  // marcher dans cette configuration.
+  const focusEditeurVisible = await win.webContents.executeJavaScript(`(() => {
+    const toggle = document.getElementById('toggle-editor');
+    if (!toggle.checked) { toggle.checked = true; toggle.dispatchEvent(new Event('change')); }
+    const editorEl = document.getElementById('editor');
+    editorEl.querySelector('.cm-content')?.focus();
+    window.palette.ouvrir();
+    window.palette.fermer();
+    return JSON.stringify({ focusRendu: editorEl.contains(document.activeElement) });
+  })()`);
+  const fev = JSON.parse(focusEditeurVisible);
+  check('fermer la palette rend le focus à l’éditeur quand il l’avait, volet visible', fev.focusRendu, focusEditeurVisible);
+
+  // Un Échap par couche, la plus interne d'abord : palette ouverte en mode
+  // focus, le premier Échap ne doit fermer que la palette (pas quitter le
+  // mode focus), le second en sort. L'événement est déclenché sur le champ
+  // de la palette, effectivement focus, pour emprunter la vraie chaîne de
+  // remontée (bubbling) jusqu'à `document`.
+  const echapCombine = await win.webContents.executeJavaScript(`(() => {
+    window.commands.run('vue:focus');
+    window.palette.ouvrir();
+    document.getElementById('palette-requete').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const paletteFermee = document.getElementById('palette').classList.contains('hidden');
+    const toujoursActif = document.body.classList.contains('focus');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const sortiEnsuite = !document.body.classList.contains('focus');
+    return JSON.stringify({ paletteFermee, toujoursActif, sortiEnsuite });
+  })()`);
+  const ec = JSON.parse(echapCombine);
+  check('un Échap palette+focus ferme la palette sans quitter le mode focus', ec.paletteFermee && ec.toujoursActif, echapCombine);
+  check('un second Échap quitte ensuite le mode focus', ec.sortiEnsuite, echapCombine);
+
+  // ── Export par lot ──────────────────────────────────────────────────────
+  const lotDir = path.join(app.getPath('temp'), `mdtopdf-lot-${Date.now()}`);
+  await fs.mkdir(lotDir, { recursive: true });
+  await fs.writeFile(path.join(lotDir, 'un.md'), '# Un\n\nTexte.\n', 'utf8');
+  await fs.writeFile(path.join(lotDir, 'deux.md'), '# Deux\n\nTexte.\n', 'utf8');
+  await fs.writeFile(path.join(lotDir, 'note.txt'), 'pas du markdown', 'utf8');
+
+  check('le handler d’écriture directe est joignable', typeof handlers['file:export-pdf-to'] === 'function');
+  check('le handler de liste markdown est joignable', typeof handlers['folder:list-markdown'] === 'function');
+
+  // I2 : `file:export-pdf-to` se confine au dossier retourné par le dernier
+  // `folder:list-markdown` — on l'appelle donc réellement une première fois
+  // pour établir ce dossier de référence avant d'exercer l'écriture directe.
+  const vraiOpenDialogInit = dialog.showOpenDialog;
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [lotDir] });
+  await handlers['folder:list-markdown']();
+  dialog.showOpenDialog = vraiOpenDialogInit;
+
+  const htmlLot = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '# Un\\n\\nTexte.\\n' });
+    return await window.buildPrintableHtml({});
+  })()`);
+  const cible = path.join(lotDir, 'un.pdf');
+  const ecrit = await handlers['file:export-pdf-to'](null, { html: htmlLot, chemin: cible, options: {} });
+  const octets = await fs.readFile(cible).then((b) => b.length).catch(() => 0);
+  check('l’écriture directe produit un PDF', ecrit && ecrit.chemin === cible && octets > 1000, String(octets));
+
+  const commandeLot = await win.webContents.executeJavaScript(
+    `window.commands.all().some(c => c.id === 'export:lot')`);
+  check('l’export par lot est une commande', commandeLot === true);
+
+  // Revue : le processus principal doit savoir dire si l'écriture directe a
+  // remplacé un PDF existant, pour que le lot puisse le compter.
+  const reecrit = await handlers['file:export-pdf-to'](null, { html: htmlLot, chemin: cible, options: {} });
+  check('l’écriture directe signale le remplacement d’un PDF existant', reecrit && reecrit.remplace === true, JSON.stringify(reecrit));
+
+  // I2 : `file:export-pdf-to` écrivait à n'importe quel chemin fourni par le
+  // renderer, sans dialogue ni vérification. Il doit refuser tout chemin hors
+  // du dossier du dernier lot, et tout chemin qui ne finit pas par .pdf.
+  const horsDossier = path.join(app.getPath('temp'), `mdtopdf-hors-lot-${Date.now()}.pdf`);
+  let refusHorsDossier = null;
+  try {
+    await handlers['file:export-pdf-to'](null, { html: htmlLot, chemin: horsDossier, options: {} });
+  } catch (e) { refusHorsDossier = e.message; }
+  const horsDossierEcrit = await fs.access(horsDossier).then(() => true).catch(() => false);
+  check('I2 — l’écriture directe refuse un chemin hors du dossier du lot',
+    !!refusHorsDossier && !horsDossierEcrit, String(refusHorsDossier));
+
+  const pasUnPdf = path.join(lotDir, 'un.txt');
+  let refusExtension = null;
+  try {
+    await handlers['file:export-pdf-to'](null, { html: htmlLot, chemin: pasUnPdf, options: {} });
+  } catch (e) { refusExtension = e.message; }
+  const extensionEcrite = await fs.access(pasUnPdf).then(() => true).catch(() => false);
+  check('I2 — l’écriture directe refuse un chemin qui ne finit pas par .pdf',
+    !!refusExtension && !extensionEcrite, String(refusExtension));
+
+  await fs.rm(lotDir, { recursive: true, force: true });
+
+  // ── Export par lot : revue — un seul onglet, refus si modifs non
+  // enregistrées, collision de noms détectée ──────────────────────────────
+  // Un onglet modifié interdit de démarrer, et sans solliciter la moindre
+  // boîte de dialogue : le refus a lieu avant l'appel à `listMarkdown`.
+  const refusDirty = await win.webContents.executeJavaScript(`(async () => {
+    const t = window.newTab({ content: '# Modifié\\n' });
+    t.dirty = true;
+    await window.exporterLot();
+    const message = document.getElementById('file-name').textContent;
+    t.dirty = false;
+    window.closeTab(t);
+    return message;
+  })()`);
+  check('le lot refuse de démarrer quand un onglet est modifié', /enregistr/i.test(refusDirty), refusDirty);
+
+  // nom.md et nom.markdown viseraient le même PDF : le second doit être
+  // ignoré et compté, pas écraser le premier en silence.
+  const conflit = await win.webContents.executeJavaScript(`(() => {
+    return JSON.stringify(window.detecterConflitsLot(['deux.markdown', 'deux.md', 'un.md']));
+  })()`);
+  const rc = JSON.parse(conflit);
+  check('la collision de noms est détectée',
+    rc.conflits === 1 && rc.aTraiter.length === 2 && rc.aTraiter.includes('un.md') && rc.aTraiter.includes('deux.markdown'),
+    conflit);
+
+  // Un lot ne doit laisser ni onglet supplémentaire ni onglet en moins
+  // derrière lui : un seul onglet de travail est créé, puis refermé.
+  const lotDir2 = path.join(app.getPath('temp'), `mdtopdf-lot2-${Date.now()}`);
+  await fs.mkdir(lotDir2, { recursive: true });
+  await fs.writeFile(path.join(lotDir2, 'a.md'), '# A\n\nTexte.\n', 'utf8');
+  await fs.writeFile(path.join(lotDir2, 'b.md'), '# B\n\nTexte.\n', 'utf8');
+  const vraiOpenDialog = dialog.showOpenDialog;
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [lotDir2] });
+  // `file:read` est stubbé à `() => null` en tête de ce fichier pour faire
+  // taire le bruit des canaux non testés — mais `exporterLot()` en a besoin
+  // ici pour de vrai. On substitue donc la référence capturée du handler réel
+  // de `main.js`, le temps de ce test.
+  ipcMain.removeHandler('file:read');
+  ipcMain.handle('file:read', handlers['file:read']);
+  const avantApres = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '# Origine\\n' });
+    const avant = document.querySelectorAll('#tabs .tab').length;
+    await window.exporterLot();
+    const apres = document.querySelectorAll('#tabs .tab').length;
+    const resume = document.getElementById('file-name').textContent;
+    return JSON.stringify({ avant, apres, resume });
+  })()`);
+  dialog.showOpenDialog = vraiOpenDialog;
+  const aa = JSON.parse(avantApres);
+  check('le nombre d’onglets est le même avant et après un lot', aa.avant === aa.apres, avantApres);
+  check('le message final résume le lot réellement traité', /^2 PDF écrits dans /.test(aa.resume), avantApres);
+  await fs.rm(lotDir2, { recursive: true, force: true });
+
+  // ── C1 : en configuration par défaut (panneau ouvert, volet code fermé),
+  // le mode focus doit vraiment passer `main` en une seule colonne — mesuré
+  // sur la géométrie réelle, pas sur la seule présence de la classe `focus`,
+  // qui passait alors même que la grille restait à 240px 1fr et que
+  // `#preview` se retrouvait coincé dans la première colonne (240px).
+  // Un onglet au contenu très court (juste un titre) exerce en plus un
+  // second piège de la même famille : `margin: auto` sur un élément de
+  // grille dont la largeur reste `auto` désactive l'étirement et retombe sur
+  // un ajustement à la largeur du contenu, ce qui collait la colonne de
+  // lecture à la largeur d'un titre au lieu de la largeur de lecture visée.
+  const geometrieFocus = await win.webContents.executeJavaScript(`(() => {
+    const toggle = document.getElementById('toggle-editor');
+    if (toggle.checked) { toggle.checked = false; toggle.dispatchEvent(new Event('change')); }
+    window.newTab({ content: '# Titre court\\n' });
+    const main = document.querySelector('main');
+    const previewEl = document.getElementById('preview');
+    window.commands.run('vue:focus');
+    const largeurMain = main.getBoundingClientRect().width;
+    const largeurPreview = previewEl.getBoundingClientRect().width;
+    const editorVisible = getComputedStyle(document.getElementById('editor')).display !== 'none';
+    window.commands.run('vue:focus');
+    return JSON.stringify({ largeurMain, largeurPreview, editorVisible });
+  })()`);
+  const gf = JSON.parse(geometrieFocus);
+  // La colonne de lecture est plafonnée à 46rem (voir styles.css) : dans une
+  // fenêtre plus large que ça, #preview ne doit PAS égaler la largeur de
+  // main — c'est le seuil de lecture qui doit gagner, pas un étirement
+  // intégral. On vérifie donc qu'elle occupe tout l'espace disponible
+  // jusqu'à ce plafond, quelle que soit la longueur du contenu.
+  const plafondLecture = 46 * 16;
+  const attendu = Math.min(gf.largeurMain, plafondLecture);
+  check('C1 — en mode focus, #preview occupe la largeur de lecture disponible, pas la largeur d’un titre court',
+    Math.abs(gf.largeurPreview - attendu) < 2, geometrieFocus + ' attendu=' + attendu);
+
+  // Relecture : le sous-test précédent forçait le volet code à fermé juste
+  // avant d'entrer en mode focus — il ne testait donc jamais le cas qu'il
+  // annonçait (« même s'il était ouvert »). Celui-ci force le volet
+  // réellement OUVERT avant d'entrer en mode focus.
+  const geometrieFocusVoletOuvert = await win.webContents.executeJavaScript(`(() => {
+    const toggle = document.getElementById('toggle-editor');
+    if (!toggle.checked) { toggle.checked = true; toggle.dispatchEvent(new Event('change')); }
+    const voletOuvertAvant = getComputedStyle(document.getElementById('editor')).display !== 'none';
+    window.commands.run('vue:focus');
+    const editorVisibleEnFocus = getComputedStyle(document.getElementById('editor')).display !== 'none';
+    window.commands.run('vue:focus');
+    toggle.checked = false; toggle.dispatchEvent(new Event('change'));
+    return JSON.stringify({ voletOuvertAvant, editorVisibleEnFocus });
+  })()`);
+  const gfo = JSON.parse(geometrieFocusVoletOuvert);
+  check('C1 — le volet code est réellement ouvert avant d’entrer en mode focus (condition du test)',
+    gfo.voletOuvertAvant, geometrieFocusVoletOuvert);
+  check('C1 — en mode focus, le volet code reste masqué même s’il était ouvert',
+    !gfo.editorVisibleEnFocus, geometrieFocusVoletOuvert);
+
+  // ── C2 : l'export par lot doit refuser un second appel pendant qu'un
+  // premier tourne. Sans garde, les deux boucles s'entrelacent sur `preview`
+  // et `activeTab` — buildPrintableHtml() relit preview.innerHTML après
+  // plusieurs `await`, un PDF peut recevoir le contenu d'un autre fichier —
+  // et rien ne le détecte. Le refus doit avoir lieu avant tout `await`
+  // (avant même la boîte de dialogue du dossier), donc être visible dès
+  // l'appel synchrone du second lot, sans attendre sa résolution.
+  const lotDir3 = path.join(app.getPath('temp'), `mdtopdf-lot3-${Date.now()}`);
+  await fs.mkdir(lotDir3, { recursive: true });
+  await fs.writeFile(path.join(lotDir3, 'x.md'), '# X\n\nTexte.\n', 'utf8');
+  await fs.writeFile(path.join(lotDir3, 'y.md'), '# Y\n\nTexte.\n', 'utf8');
+  const vraiOpenDialog2 = dialog.showOpenDialog;
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [lotDir3] });
+  const concurrence = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '# Origine 2\\n' });
+    const p1 = window.exporterLot();
+    const p2 = window.exporterLot();
+    const messageImmediat = document.getElementById('file-name').textContent;
+    await Promise.all([p1, p2]);
+    return JSON.stringify({ messageImmediat });
+  })()`);
+  dialog.showOpenDialog = vraiOpenDialog2;
+  const cc = JSON.parse(concurrence);
+  check('C2 — un second export par lot pendant qu’un premier tourne est refusé, et le dit',
+    /déjà en cours/i.test(cc.messageImmediat), concurrence);
+  await fs.rm(lotDir3, { recursive: true, force: true });
+
+  // ── C3 : pendant un lot, l'enregistrement automatique est suspendu et
+  // l'onglet de travail ne peut pas être enregistré ni fermé. L'onglet de
+  // travail vise successivement chaque fichier source du lot : sans garde,
+  // une frappe pendant le lot armerait scheduleAutosave(), qui écrirait deux
+  // secondes plus tard dans le fichier source ; et Cmd+W fermerait un onglet
+  // que la prochaine itération du lot réactive alors qu'il n'existe plus.
+  // Le déclenchement réel de l'autosave dépend d'un délai de 2 s dans une
+  // fenêtre cachée (`show:false`), où Chromium peut retarder les
+  // minuteurs : plutôt que d'attendre ce délai pour de vrai (lent et
+  // possiblement peu fiable), le test intercepte `setTimeout` pour vérifier
+  // directement la décision de programmation, et appelle `saveFile()` de
+  // façon synchrone pour vérifier le refus d'écriture — les deux chemins que
+  // l'autosave et Cmd+S empruntent réellement.
+  const lotDir4 = path.join(app.getPath('temp'), `mdtopdf-lot4-${Date.now()}`);
+  await fs.mkdir(lotDir4, { recursive: true });
+  await fs.writeFile(path.join(lotDir4, 'p.md'), '# P\n\nTexte.\n', 'utf8');
+  await fs.writeFile(path.join(lotDir4, 'q.md'), '# Q\n\nTexte.\n', 'utf8');
+  const vraiOpenDialog3 = dialog.showOpenDialog;
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [lotDir4] });
+  // On remplace le vrai handler d'enregistrement par un espion qui ne touche
+  // pas le disque : si une garde échoue, le scénario appellerait `file:save`
+  // avec un chemin qui pointe vers un fichier source du lot — l'espion le
+  // détecte sans jamais risquer d'écrire quoi que ce soit pour de vrai.
+  const vraiSaveHandler = handlers['file:save'];
+  let appelsSauvegarde = 0;
+  ipcMain.removeHandler('file:save');
+  ipcMain.handle('file:save', () => { appelsSauvegarde += 1; return null; });
+  // La vitesse réelle de lecture disque + rendu PDF varie avec la charge de
+  // la machine ; sans un délai déterministe, l'état « en cours » du lot peut
+  // se dérober à un sondage même rapproché. `file:read` est le premier
+  // aller-retour IPC de chaque itération, juste après que le texte
+  // « Export … » est posé : le ralentir garantit une fenêtre d'observation
+  // stable, indépendante du temps réel de génération du PDF.
+  const vraiReadHandler = handlers['file:read'];
+  ipcMain.removeHandler('file:read');
+  ipcMain.handle('file:read', async (...args) => {
+    await new Promise((r) => setTimeout(r, 150));
+    return vraiReadHandler(...args);
+  });
+  const suspension = await win.webContents.executeJavaScript(`(async () => {
+    // Sans la garde de fermeture, l'onglet de travail venant d'être marqué
+    // modifié atteindrait la confirmation de perte de modifications : un vrai
+    // dialogue natif bloquerait ce test. On l'accepte automatiquement, ce qui
+    // laisse le défaut se manifester (l'onglet se ferme) sans jamais faire
+    // dépendre le test d'un dialogue système.
+    window.confirm = () => true;
+    document.getElementById('toggle-autosave').checked = true;
+    window.newTab({ content: '# Origine 3\\n' });
+    const avantOnglets = document.querySelectorAll('#tabs .tab').length;
+    const lot = window.exporterLot();
+    let tentatives = 0;
+    while (!document.getElementById('file-name').textContent.startsWith('Export ') && tentatives < 4000) {
+      await new Promise(r => setTimeout(r, 5));
+      tentatives += 1;
+    }
+    const pendantLeLot = document.getElementById('file-name').textContent.startsWith('Export ');
+    // L'onglet de travail est actif : appeler saveFile() directement emprunte
+    // exactement le chemin que Cmd+S ou l'autosave débouclée emprunteraient.
+    await window.saveFile();
+    // Simule une frappe pendant le lot, sur l'onglet de travail : sans la
+    // garde, ceci arme un minuteur à 2000 ms via scheduleAutosave().
+    // L'interception de setTimeout constate la décision sans attendre le
+    // délai réel.
+    let minuteurAutosaveArme = false;
+    const vraiSetTimeout = window.setTimeout;
+    window.setTimeout = function (fn, delai, ...reste) {
+      if (delai === 2000) minuteurAutosaveArme = true;
+      return vraiSetTimeout(fn, delai, ...reste);
+    };
+    window.markDirty();
+    window.setTimeout = vraiSetTimeout;
+    const ongletsPendantLot = document.querySelectorAll('#tabs .tab').length;
+    const boutonFermer = document.querySelector('#tabs .tab.active .close');
+    if (boutonFermer) boutonFermer.click();
+    const ongletsApresFermeture = document.querySelectorAll('#tabs .tab').length;
+    await lot;
+    const ongletsApresLot = document.querySelectorAll('#tabs .tab').length;
+    return JSON.stringify({ pendantLeLot, avantOnglets, ongletsPendantLot, ongletsApresFermeture, ongletsApresLot, minuteurAutosaveArme });
+  })()`);
+  dialog.showOpenDialog = vraiOpenDialog3;
+  ipcMain.removeHandler('file:save');
+  ipcMain.handle('file:save', vraiSaveHandler);
+  ipcMain.removeHandler('file:read');
+  ipcMain.handle('file:read', vraiReadHandler);
+  const su = JSON.parse(suspension);
+  check('C3 — le lot atteint bien l’onglet de travail avant la vérification', su.pendantLeLot, suspension);
+  check('C3 — l’onglet de travail ne peut pas être enregistré pendant un lot',
+    appelsSauvegarde === 0, suspension);
+  check('C3 — une frappe pendant un lot n’arme pas le minuteur d’autosave',
+    su.minuteurAutosaveArme === false, suspension);
+  check('C3 — Cmd+W ne ferme pas l’onglet de travail pendant un lot',
+    su.ongletsPendantLot === su.ongletsApresFermeture, suspension);
+  check('C3 — le lot laisse le même nombre d’onglets qu’à son démarrage, malgré la tentative de fermeture',
+    su.ongletsApresLot === su.avantOnglets, suspension);
+  await fs.rm(lotDir4, { recursive: true, force: true });
+
+  // ── I3 : la modale PDF est la couche la plus interne et doit avoir son
+  // propre gestionnaire Échap, appliqué avant les couches plus externes — en
+  // particulier avant que le mode focus ne se ferme, ce qui ferait
+  // réapparaître l'habillage derrière une modale restée ouverte. Cas à trois
+  // couches : palette ouverte sur une modale PDF ouverte sur le mode focus ;
+  // chaque Échap ne doit fermer que la couche la plus interne encore ouverte.
+  const troisCouches = await win.webContents.executeJavaScript(`(() => {
+    window.commands.run('vue:focus');
+    window.showPdfModal();
+    window.palette.ouvrir();
+    const modal = document.getElementById('pdf-modal');
+    const etat = () => ({
+      paletteOuverte: !document.getElementById('palette').classList.contains('hidden'),
+      modalOuverte: !modal.classList.contains('hidden'),
+      focusActif: document.body.classList.contains('focus'),
+    });
+    const avant = etat();
+    document.getElementById('palette-requete').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const apresUn = etat();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const apresDeux = etat();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const apresTrois = etat();
+    return JSON.stringify({ avant, apresUn, apresDeux, apresTrois });
+  })()`);
+  const tc = JSON.parse(troisCouches);
+  check('I3 — les trois couches sont bien ouvertes avant le premier Échap',
+    tc.avant.paletteOuverte && tc.avant.modalOuverte && tc.avant.focusActif, troisCouches);
+  check('I3 — le premier Échap ne ferme que la palette',
+    !tc.apresUn.paletteOuverte && tc.apresUn.modalOuverte && tc.apresUn.focusActif, troisCouches);
+  check('I3 — le deuxième Échap ferme la modale PDF, pas le mode focus',
+    !tc.apresDeux.modalOuverte && tc.apresDeux.focusActif, troisCouches);
+  check('I3 — le troisième Échap quitte enfin le mode focus',
+    !tc.apresTrois.focusActif, troisCouches);
+
+  // ── I4 : un fichier en échec dans le lot doit être journalisé (nom +
+  // erreur) et nommé dans le message final — pas juste compté par un `catch`
+  // muet.
+  const lotDir5 = path.join(app.getPath('temp'), `mdtopdf-lot5-${Date.now()}`);
+  await fs.mkdir(lotDir5, { recursive: true });
+  await fs.writeFile(path.join(lotDir5, 'a.md'), '# A\n\nTexte.\n', 'utf8');
+  await fs.writeFile(path.join(lotDir5, 'b.md'), '# B\n\nTexte.\n', 'utf8');
+  const vraiOpenDialog4 = dialog.showOpenDialog;
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [lotDir5] });
+  const vraiExportHandler2 = handlers['file:export-pdf-to'];
+  ipcMain.removeHandler('file:export-pdf-to');
+  ipcMain.handle('file:export-pdf-to', async (e, args) => {
+    if (args.chemin.endsWith('b.pdf')) throw new Error('échec simulé pour la revue I4');
+    return vraiExportHandler2(e, args);
+  });
+  // console.error() dans exporterLot() s'exécute côté renderer : il faut
+  // l'écouter via console-message sur webContents, pas patcher le
+  // console.error du processus principal (qui ne verrait que les propres
+  // journaux d'Electron pour un handler IPC en échec, pas celui-ci).
+  const messagesConsole = [];
+  const ecouteurConsole = (_e, _lvl, message) => messagesConsole.push(message);
+  win.webContents.on('console-message', ecouteurConsole);
+  const resultatI4 = await win.webContents.executeJavaScript(`(async () => {
+    window.newTab({ content: '# Origine 4\\n' });
+    await window.exporterLot();
+    return document.getElementById('file-name').textContent;
+  })()`);
+  win.webContents.off('console-message', ecouteurConsole);
+  dialog.showOpenDialog = vraiOpenDialog4;
+  ipcMain.removeHandler('file:export-pdf-to');
+  ipcMain.handle('file:export-pdf-to', vraiExportHandler2);
+  check('I4 — le fichier fautif et l’erreur sont journalisés en console',
+    messagesConsole.some((m) => m.includes('b.md')), JSON.stringify(messagesConsole));
+  check('I4 — le message final nomme le premier fichier fautif',
+    /b\.md/.test(resultatI4) && /en échec/.test(resultatI4), resultatI4);
+  await fs.rm(lotDir5, { recursive: true, force: true });
+
+  // ── I5 : les raccourcis du registre étaient des littéraux `Cmd+…`, faux
+  // hors macOS — l'application livre aussi un installeur Windows. On ne peut
+  // pas changer la plateforme réelle de ce processus de test : on charge donc
+  // l'application dans une fenêtre à part, avec un préchargement qui se fait
+  // passer pour Windows avant de déléguer au vrai preload.js.
+  // Un preload isolé ne peut pas `require()` un second fichier local
+  // arbitraire (résolution de module restreinte) : on combine donc la
+  // source réelle de preload.js avec la redéfinition de plateforme dans un
+  // seul fichier temporaire, plutôt que d'en charger un second par-dessus.
+  const preloadWin32 = path.join(app.getPath('temp'), `mdtopdf-preload-win32-${Date.now()}.js`);
+  const sourcePreloadReel = await fs.readFile(path.join(root, 'preload.js'), 'utf8');
+  await fs.writeFile(
+    preloadWin32,
+    `Object.defineProperty(process, 'platform', { value: 'win32' });\n${sourcePreloadReel}`,
+    'utf8'
+  );
+  const winWin32 = new BrowserWindow({ show: false, webPreferences: { preload: preloadWin32 } });
+  const messagesWin32 = [];
+  winWin32.webContents.on('console-message', (_e, _lvl, message) => messagesWin32.push(message));
+  winWin32.webContents.on('preload-error', (_e, p, error) => messagesWin32.push('preload-error: ' + p + ' ' + error.message));
+  await winWin32.loadFile(path.join(root, 'renderer', 'index.html'));
+  await new Promise((r) => setTimeout(r, 1000));
+  const raccourcisWin32 = await winWin32.webContents.executeJavaScript(
+    `JSON.stringify({ plateforme: window.api?.platform, raccourci: window.commands?.all().find(c => c.id === 'fichier:enregistrer')?.raccourci, aApi: typeof window.api, aCommands: typeof window.commands, console: ${JSON.stringify(messagesWin32)} })`
+  ).catch((e) => JSON.stringify({ erreurExec: e.message, console: messagesWin32 }));
+  winWin32.close();
+  await fs.unlink(preloadWin32).catch(() => {});
+  const rw = JSON.parse(raccourcisWin32);
+  check('I5 — le registre affiche Ctrl (pas Cmd) hors macOS',
+    rw.plateforme === 'win32' && rw.raccourci === 'Ctrl+S', raccourcisWin32);
+
+  // ── I6 : en mode focus, l'en-tête (où vit #file-name) est masqué. Un
+  // utilisateur qui lance un lot en mode focus avec un onglet modifié ne
+  // voyait donc ni sélecteur ni refus. Le message doit rester visible via un
+  // conteneur que le mode focus ne masque pas.
+  const muetEnFocus = await win.webContents.executeJavaScript(`(async () => {
+    window.commands.run('vue:focus');
+    const t = window.newTab({ content: '# Modifié en focus\\n' });
+    t.dirty = true;
+    await window.exporterLot();
+    const notif = document.getElementById('lot-notification');
+    const resultat = {
+      focusActif: document.body.classList.contains('focus'),
+      enTeteMasquee: getComputedStyle(document.querySelector('header')).display === 'none',
+      notifVisible: !notif.classList.contains('hidden')
+        && getComputedStyle(notif).display !== 'none',
+      notifTexte: notif.textContent,
+    };
+    // Régression signalée en relecture : rien ne remettait jamais 'hidden',
+    // la bannière restait affichée en permanence après le premier lot. On
+    // attend au-delà du délai d'effacement (4 s) pour prouver la
+    // disparition, pas seulement l'apparition.
+    await new Promise(r => setTimeout(r, 4300));
+    resultat.notifDisparueApresDelai = notif.classList.contains('hidden');
+    t.dirty = false;
+    window.closeTab(t);
+    window.commands.run('vue:focus');
+    return JSON.stringify(resultat);
+  })()`);
+  const mf = JSON.parse(muetEnFocus);
+  check('I6 — l’en-tête est bien masquée en mode focus (condition du défaut)',
+    mf.focusActif && mf.enTeteMasquee, muetEnFocus);
+  check('I6 — le message de refus du lot reste visible en mode focus',
+    mf.notifVisible && /enregistr/i.test(mf.notifTexte), muetEnFocus);
+  check('I6 — la notification du lot finit par disparaître (ne reste pas affichée en permanence)',
+    mf.notifDisparueApresDelai === true, muetEnFocus);
+
+  // ── Minor 1 : installer.iss doit annoncer la même version que le manifeste.
+  const pkgVersion = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8')).version;
+  const issSrc = await fs.readFile(path.join(root, 'installer.iss'), 'utf8');
+  const issVersion = (issSrc.match(/#define MyAppVersion "([^"]+)"/) || [])[1];
+  check('Minor 1 — installer.iss annonce la même version que package.json',
+    issVersion === pkgVersion, `installer.iss=${issVersion} package.json=${pkgVersion}`);
+
+  // ── Minor 3 : commands.run() doit envelopper l'exécution — un `executer`
+  // asynchrone qui rejette ne doit pas produire un rejet de promesse
+  // invisible, il doit être journalisé.
+  const messagesMinor3 = [];
+  const ecouteurMinor3 = (_e, _lvl, message) => messagesMinor3.push(message);
+  win.webContents.on('console-message', ecouteurMinor3);
+  const rejetInvisible = await win.webContents.executeJavaScript(`(async () => {
+    let vu = false;
+    window.addEventListener('unhandledrejection', () => { vu = true; });
+    window.commands.register({
+      id: 'test:echoue',
+      titre: 'Commande qui échoue',
+      executer: () => Promise.reject(new Error('échec simulé pour Minor 3')),
+    });
+    window.commands.run('test:echoue');
+    await new Promise(r => setTimeout(r, 200));
+    return JSON.stringify({ rejetNonAttrape: vu });
+  })()`);
+  win.webContents.off('console-message', ecouteurMinor3);
+  const ri = JSON.parse(rejetInvisible);
+  check('Minor 3 — un executer() asynchrone qui rejette ne produit pas de rejet non attrapé',
+    ri.rejetNonAttrape === false, rejetInvisible);
+  check('Minor 3 — l’échec est journalisé en console',
+    messagesMinor3.some((m) => m.includes('test:echoue')), JSON.stringify(messagesMinor3));
+
+  // ── Minor 4 : Cmd/Ctrl+Shift+P doit être idempotent — un second appui
+  // pendant que la palette est déjà ouverte ne doit pas écraser la mémoire
+  // du focus précédent avec le champ de la palette elle-même.
+  const idempotence = await win.webContents.executeJavaScript(`(() => {
+    const bouton = document.getElementById('btn-theme');
+    bouton.focus();
+    window.palette.ouvrir();
+    window.palette.ouvrir();
+    window.palette.fermer();
+    return JSON.stringify({ rendu: document.activeElement === bouton });
+  })()`);
+  check('Minor 4 — un second appel à palette.ouvrir() n’écrase pas le focus précédent mémorisé',
+    JSON.parse(idempotence).rendu, idempotence);
+
+  // ── Minor 5 : la branche « plus aucun onglet » du lot doit rappeler la
+  // surveillance de fichier à null, comme setActiveTab() le fait partout
+  // ailleurs — sinon le processus principal continue de surveiller le
+  // dernier fichier du lot alors qu'aucun onglet ne le représente plus.
+  // `file:watch` est stubbé à `() => null` en tête de ce fichier : on
+  // installe le vrai handler (déjà capturé dans `handlers`) le temps du
+  // test, pour observer les arguments réels des appels.
+  const vraiWatchHandler = handlers['file:watch'];
+  const appelsWatch = [];
+  ipcMain.removeHandler('file:watch');
+  ipcMain.handle('file:watch', (e, filePath) => { appelsWatch.push(filePath); return vraiWatchHandler(e, filePath); });
+  const lotDir6 = path.join(app.getPath('temp'), `mdtopdf-lot6-${Date.now()}`);
+  await fs.mkdir(lotDir6, { recursive: true });
+  await fs.writeFile(path.join(lotDir6, 'seul.md'), '# Seul\n\nTexte.\n', 'utf8');
+  const vraiOpenDialog5 = dialog.showOpenDialog;
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [lotDir6] });
+  const surveillance = await win.webContents.executeJavaScript(`(async () => {
+    window.confirm = () => true;
+    // Ferme tous les onglets existants : le lot doit démarrer sans aucun
+    // onglet d'origine pour atteindre la branche « plus aucun onglet ».
+    let bouton;
+    while ((bouton = document.querySelector('#tabs .tab .close'))) bouton.click();
+    await window.exporterLot();
+    return JSON.stringify({ activeTabNul: !document.querySelector('#tabs .tab.active') });
+  })()`);
+  dialog.showOpenDialog = vraiOpenDialog5;
+  ipcMain.removeHandler('file:watch');
+  ipcMain.handle('file:watch', vraiWatchHandler);
+  const surv = JSON.parse(surveillance);
+  check('Minor 5 — après un lot qui ne laisse aucun onglet, la surveillance de fichier est rappelée à null',
+    appelsWatch.length > 0 && appelsWatch[appelsWatch.length - 1] === null,
+    JSON.stringify(appelsWatch));
+  await fs.rm(lotDir6, { recursive: true, force: true });
+
+  // ── Minor 6 : detecterConflitsLot garde le premier dans l'ordre
+  // alphabétique ; comme la liste vient triée de folder:list-markdown,
+  // `note.markdown` (avant `note.md` alphabétiquement — 'a' < 'd' à la
+  // première lettre qui diffère) est gardé, `note.md` est ignoré. Le README
+  // affirmait l'inverse.
+  const conflitExemple = await win.webContents.executeJavaScript(
+    `JSON.stringify(window.detecterConflitsLot(['note.markdown', 'note.md'].sort()))`
+  );
+  const ce = JSON.parse(conflitExemple);
+  check('Minor 6 — entre note.md et note.markdown, celui trié en premier (note.markdown) est gardé',
+    ce.aTraiter.length === 1 && ce.aTraiter[0] === 'note.markdown' && ce.conflits === 1, conflitExemple);
+  const readmeSrc6 = await fs.readFile(path.join(root, 'README.md'), 'utf8');
+  check('Minor 6 — le README ne dit plus que le second (note.markdown) est ignoré',
+    !/`note\.markdown` visant le même `note\.pdf` : le second est ignoré/.test(readmeSrc6), 'README non corrigé');
+  check('Minor 6 — le README dit que note.markdown est gardé', /note\.markdown.*avant.*note\.md/.test(readmeSrc6), 'phrase absente');
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
+  clearTimeout(chienDeGarde);
   app.exit(failed.length ? 1 : 0);
 }).catch(err => {
   console.error('harness error:', err);
+  clearTimeout(chienDeGarde);
   app.exit(1);
 });

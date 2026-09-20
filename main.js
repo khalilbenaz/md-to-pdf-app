@@ -8,6 +8,11 @@ const { pdfOptions, hasTocSlots, tocSecondPass } = require('./pdf.js');
 
 let mainWindow;
 let watcher = null;
+// Confine `file:export-pdf-to` au dernier dossier choisi via
+// `folder:list-markdown` : avant ce lot, toute écriture passait par une boîte
+// d'enregistrement système ; ce handler écrit directement à un chemin fourni
+// par le renderer, sans dialogue et sans autre vérification.
+let dernierDossierLot = null;
 
 // Extensions markdown reconnues par l'application (doivent rester alignées avec
 // "fileAssociations" dans package.json).
@@ -450,10 +455,15 @@ ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => 
   });
   if (canceled || !filePath) return null;
 
-  const stagedHtml = await stageHtml(html);
+  // Minor 2 : stageHtml() écrit sur le disque. L'appeler avant le `try` (et
+  // avant la création de la fenêtre) laissait le fichier temporaire orphelin
+  // si la création de la fenêtre levait ensuite — `file:print` a le bon
+  // motif (la variable est déclarée dehors, assignée dedans) : repris ici.
   const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  let stagedHtml;
   let restaged;
   try {
+    stagedHtml = await stageHtml(html);
     await pdfWin.loadFile(stagedHtml);
     // Les numéros de page ne s'obtiennent que du PDF lui-même : `offsetTop` se
     // trompe dès qu'une règle de pagination déplace un élément. On rend donc une
@@ -470,12 +480,79 @@ ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => 
   } finally {
     // Les suppressions avant la fermeture : sur une fenêtre déjà détruite,
     // `close()` lève, et les fichiers temporaires restaient alors sur le disque.
-    await fs.unlink(stagedHtml).catch(() => {});
+    if (stagedHtml) await fs.unlink(stagedHtml).catch(() => {});
     if (restaged) await fs.unlink(restaged).catch(() => {});
     try { pdfWin.close(); } catch {}
   }
   shell.showItemInFolder(filePath);
   return filePath;
+});
+
+// L'export par lot boucle côté renderer — chaque document doit passer par
+// l'aperçu pour produire son HTML — et revient ici pour chaque écriture. D'où
+// un handler qui écrit à un chemin donné, sans boîte de dialogue.
+ipcMain.handle('file:export-pdf-to', async (_e, { html, chemin, options }) => {
+  // I2 : sans boîte de dialogue, rien n'empêchait ce handler d'écrire
+  // n'importe où sur le disque à la demande du renderer. On le confine donc
+  // au dossier du dernier lot choisi par l'utilisateur, et on exige un nom se
+  // terminant par .pdf.
+  if (!dernierDossierLot) {
+    throw new Error('Aucun dossier de lot n\'a été sélectionné.');
+  }
+  const racine = path.resolve(dernierDossierLot);
+  const cible = path.resolve(chemin);
+  const estDansLeDossier = cible === racine || cible.startsWith(racine + path.sep);
+  if (!estDansLeDossier || path.extname(cible).toLowerCase() !== '.pdf') {
+    throw new Error('Chemin refusé : hors du dossier du lot ou ne se terminant pas par .pdf.');
+  }
+  // Pas de boîte d'enregistrement ici pour demander confirmation : on note
+  // donc nous-mêmes si le fichier existait déjà, pour que l'appelant (le lot,
+  // côté renderer) puisse le signaler plutôt que d'écraser en silence.
+  const remplace = existsSync(chemin);
+  // Minor 2 : même motif que file:print — stageHtml() (une écriture disque)
+  // s'exécute dans le try, pas avant, sinon un échec de création de fenêtre
+  // laisserait le fichier temporaire orphelin.
+  const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  let stagedHtml;
+  let restaged = null;
+  try {
+    stagedHtml = await stageHtml(html);
+    await pdfWin.loadFile(stagedHtml);
+    let buffer = await pdfWin.webContents.printToPDF(pdfOptions(options));
+    if (hasTocSlots(html)) {
+      const pass = tocSecondPass(html, buffer);
+      if (pass.needed) {
+        restaged = await stageHtml(pass.html);
+        await pdfWin.loadFile(restaged);
+        buffer = await pdfWin.webContents.printToPDF(pdfOptions(options));
+      }
+    }
+    await fs.writeFile(chemin, buffer);
+    return { chemin, remplace };
+  } finally {
+    if (stagedHtml) await fs.unlink(stagedHtml).catch(() => {});
+    if (restaged) await fs.unlink(restaged).catch(() => {});
+    try { pdfWin.close(); } catch {}
+  }
+});
+
+ipcMain.handle('folder:list-markdown', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: 'Dossier à exporter en PDF',
+  });
+  if (canceled || !filePaths.length) return null;
+  const dossier = filePaths[0];
+  dernierDossierLot = dossier;
+  const entrees = await fs.readdir(dossier, { withFileTypes: true });
+  // `MD_EXT_RE` accepte aussi `.txt`, pour l'ouverture manuelle. Un export par
+  // lot ne doit prendre que du markdown : on filtre sur `MD_EXTENSIONS`.
+  const estMarkdown = new RegExp('\\.(' + MD_EXTENSIONS.join('|') + ')$', 'i');
+  const fichiers = entrees
+    .filter((e) => e.isFile() && estMarkdown.test(e.name))
+    .map((e) => e.name)
+    .sort();
+  return { dossier, fichiers };
 });
 
 const MIME_BY_EXT = {
