@@ -1340,6 +1340,22 @@ app.whenReady().then(async () => {
     JSON.stringify(appelsWatch));
   await fs.rm(lotDir6, { recursive: true, force: true });
 
+  // ── Minor 6 : detecterConflitsLot garde le premier dans l'ordre
+  // alphabétique ; comme la liste vient triée de folder:list-markdown,
+  // `note.markdown` (avant `note.md` alphabétiquement — 'a' < 'd' à la
+  // première lettre qui diffère) est gardé, `note.md` est ignoré. Le README
+  // affirmait l'inverse.
+  const conflitExemple = await win.webContents.executeJavaScript(
+    `JSON.stringify(window.detecterConflitsLot(['note.markdown', 'note.md'].sort()))`
+  );
+  const ce = JSON.parse(conflitExemple);
+  check('Minor 6 — entre note.md et note.markdown, celui trié en premier (note.markdown) est gardé',
+    ce.aTraiter.length === 1 && ce.aTraiter[0] === 'note.markdown' && ce.conflits === 1, conflitExemple);
+  const readmeSrc6 = await fs.readFile(path.join(root, 'README.md'), 'utf8');
+  check('Minor 6 — le README ne dit plus que le second (note.markdown) est ignoré',
+    !/`note\.markdown` visant le même `note\.pdf` : le second est ignoré/.test(readmeSrc6), 'README non corrigé');
+  check('Minor 6 — le README dit que note.markdown est gardé', /note\.markdown.*avant.*note\.md/.test(readmeSrc6), 'phrase absente');
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   clearTimeout(chienDeGarde);
