@@ -8,6 +8,11 @@ const { pdfOptions, hasTocSlots, tocSecondPass } = require('./pdf.js');
 
 let mainWindow;
 let watcher = null;
+// Confine `file:export-pdf-to` au dernier dossier choisi via
+// `folder:list-markdown` : avant ce lot, toute écriture passait par une boîte
+// d'enregistrement système ; ce handler écrit directement à un chemin fourni
+// par le renderer, sans dialogue et sans autre vérification.
+let dernierDossierLot = null;
 
 // Extensions markdown reconnues par l'application (doivent rester alignées avec
 // "fileAssociations" dans package.json).
@@ -482,6 +487,19 @@ ipcMain.handle('file:export-pdf', async (_e, { html, defaultName, options }) => 
 // l'aperçu pour produire son HTML — et revient ici pour chaque écriture. D'où
 // un handler qui écrit à un chemin donné, sans boîte de dialogue.
 ipcMain.handle('file:export-pdf-to', async (_e, { html, chemin, options }) => {
+  // I2 : sans boîte de dialogue, rien n'empêchait ce handler d'écrire
+  // n'importe où sur le disque à la demande du renderer. On le confine donc
+  // au dossier du dernier lot choisi par l'utilisateur, et on exige un nom se
+  // terminant par .pdf.
+  if (!dernierDossierLot) {
+    throw new Error('Aucun dossier de lot n\'a été sélectionné.');
+  }
+  const racine = path.resolve(dernierDossierLot);
+  const cible = path.resolve(chemin);
+  const estDansLeDossier = cible === racine || cible.startsWith(racine + path.sep);
+  if (!estDansLeDossier || path.extname(cible).toLowerCase() !== '.pdf') {
+    throw new Error('Chemin refusé : hors du dossier du lot ou ne se terminant pas par .pdf.');
+  }
   // Pas de boîte d'enregistrement ici pour demander confirmation : on note
   // donc nous-mêmes si le fichier existait déjà, pour que l'appelant (le lot,
   // côté renderer) puisse le signaler plutôt que d'écraser en silence.
@@ -516,6 +534,7 @@ ipcMain.handle('folder:list-markdown', async () => {
   });
   if (canceled || !filePaths.length) return null;
   const dossier = filePaths[0];
+  dernierDossierLot = dossier;
   const entrees = await fs.readdir(dossier, { withFileTypes: true });
   // `MD_EXT_RE` accepte aussi `.txt`, pour l'ouverture manuelle. Un export par
   // lot ne doit prendre que du markdown : on filtre sur `MD_EXTENSIONS`.

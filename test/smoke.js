@@ -867,6 +867,14 @@ app.whenReady().then(async () => {
   check('le handler d’écriture directe est joignable', typeof handlers['file:export-pdf-to'] === 'function');
   check('le handler de liste markdown est joignable', typeof handlers['folder:list-markdown'] === 'function');
 
+  // I2 : `file:export-pdf-to` se confine au dossier retourné par le dernier
+  // `folder:list-markdown` — on l'appelle donc réellement une première fois
+  // pour établir ce dossier de référence avant d'exercer l'écriture directe.
+  const vraiOpenDialogInit = dialog.showOpenDialog;
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [lotDir] });
+  await handlers['folder:list-markdown']();
+  dialog.showOpenDialog = vraiOpenDialogInit;
+
   const htmlLot = await win.webContents.executeJavaScript(`(async () => {
     window.newTab({ content: '# Un\\n\\nTexte.\\n' });
     return await window.buildPrintableHtml({});
@@ -884,6 +892,28 @@ app.whenReady().then(async () => {
   // remplacé un PDF existant, pour que le lot puisse le compter.
   const reecrit = await handlers['file:export-pdf-to'](null, { html: htmlLot, chemin: cible, options: {} });
   check('l’écriture directe signale le remplacement d’un PDF existant', reecrit && reecrit.remplace === true, JSON.stringify(reecrit));
+
+  // I2 : `file:export-pdf-to` écrivait à n'importe quel chemin fourni par le
+  // renderer, sans dialogue ni vérification. Il doit refuser tout chemin hors
+  // du dossier du dernier lot, et tout chemin qui ne finit pas par .pdf.
+  const horsDossier = path.join(app.getPath('temp'), `mdtopdf-hors-lot-${Date.now()}.pdf`);
+  let refusHorsDossier = null;
+  try {
+    await handlers['file:export-pdf-to'](null, { html: htmlLot, chemin: horsDossier, options: {} });
+  } catch (e) { refusHorsDossier = e.message; }
+  const horsDossierEcrit = await fs.access(horsDossier).then(() => true).catch(() => false);
+  check('I2 — l’écriture directe refuse un chemin hors du dossier du lot',
+    !!refusHorsDossier && !horsDossierEcrit, String(refusHorsDossier));
+
+  const pasUnPdf = path.join(lotDir, 'un.txt');
+  let refusExtension = null;
+  try {
+    await handlers['file:export-pdf-to'](null, { html: htmlLot, chemin: pasUnPdf, options: {} });
+  } catch (e) { refusExtension = e.message; }
+  const extensionEcrite = await fs.access(pasUnPdf).then(() => true).catch(() => false);
+  check('I2 — l’écriture directe refuse un chemin qui ne finit pas par .pdf',
+    !!refusExtension && !extensionEcrite, String(refusExtension));
+
   await fs.rm(lotDir, { recursive: true, force: true });
 
   // ── Export par lot : revue — un seul onglet, refus si modifs non
