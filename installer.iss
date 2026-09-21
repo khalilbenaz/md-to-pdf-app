@@ -2,7 +2,7 @@
 ; Builds a single-file installer that registers .md file association.
 
 #define MyAppName "MD to PDF"
-#define MyAppVersion "1.5.0"
+#define MyAppVersion "1.5.1"
 #define MyAppPublisher "khalilbenaz"
 #define MyAppURL "https://github.com/khalilbenaz/md-to-pdf-app"
 #define MyAppExeName "MD to PDF.exe"

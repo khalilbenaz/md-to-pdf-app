@@ -1,6 +1,6 @@
 {
   "name": "md-to-pdf-app",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Markdown editor with PDF export for macOS and Windows",
   "main": "main.js",
   "scripts": {
@@ -47,6 +47,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "pdf.js",
       "renderer/**/*",
       "package.json"
     ],
