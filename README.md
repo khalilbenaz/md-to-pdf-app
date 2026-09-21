@@ -238,8 +238,8 @@ Un workflow **GitHub Actions** ([`.github/workflows/release.yml`](.github/workfl
 
 ```bash
 # Bump de version dans package.json, puis :
-git tag v1.4.0
-git push origin v1.4.0
+git tag v<version>      # la même que celle de package.json, sans quoi la release ment
+git push origin v<version>
 ```
 
 Le push d'un tag `v*` déclenche le build multi-OS et attache les artefacts à la Release GitHub correspondante.
@@ -310,7 +310,7 @@ boîte d'impression système, pour que son sommaire porte lui aussi ses numéros
 |---|---|
 | `npm start` | Bundle le renderer + lance l'app en dev |
 | `npm run bundle` | Bundle `renderer/editor-src.js` et `renderer/markdown-src.js` vers `editor-bundle.js` et `markdown-bundle.js` (esbuild, minifié) |
-| `npm test` | Tests unitaires du moteur Markdown et de la chaîne PDF (`node --test`, sans Electron) puis test de fumée end-to-end |
+| `npm test` | Tests unitaires du moteur Markdown, de la chaîne PDF et de l'empaquetage (`node --test`, sans Electron) puis test de fumée end-to-end sous Electron |
 | `npm run build` | Build des installateurs pour la plateforme courante |
 | `npm run build:mac` | Build `.dmg` (arm64 + x64) |
 | `npm run build:win` | Build installateur NSIS |
