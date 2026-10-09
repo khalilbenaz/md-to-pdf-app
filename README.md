@@ -1,4 +1,4 @@
-# 📕 MD to PDF
+# 📕 MD Reader
 
 > Éditeur Markdown de bureau, multi-plateforme (macOS & Windows), avec aperçu en temps réel, export **PDF** & **HTML**, coloration syntaxique, **KaTeX**, **Mermaid** et thème clair/sombre.
 
@@ -97,7 +97,7 @@ Construit avec [Electron](https://www.electronjs.org/) + [CodeMirror 6](https://
 | 💾 Enregistrer | Enregistrer l'onglet courant |
 | 📕 PDF | Exporter en PDF (ouvre les options) |
 | 🌐 HTML | Exporter en HTML autonome |
-| ⭐ Défaut | Définir MD to PDF comme lecteur Markdown par défaut (macOS) |
+| ⭐ Défaut | Définir MD Reader comme lecteur Markdown par défaut (macOS) |
 | ☑ Code | Afficher / masquer le volet éditeur |
 | ☑ Sync | Synchroniser le défilement éditeur ↔ aperçu |
 | ☑ Autosave | Enregistrement automatique |
@@ -113,7 +113,7 @@ Construit avec [Electron](https://www.electronjs.org/) + [CodeMirror 6](https://
 
 ## ⭐ Lecteur Markdown par défaut
 
-MD to PDF peut s'enregistrer comme application par défaut pour les fichiers Markdown (`.md`, `.markdown`, `.mdown`, `.mkd`).
+MD Reader peut s'enregistrer comme application par défaut pour les fichiers Markdown (`.md`, `.markdown`, `.mdown`, `.mkd`).
 
 - **macOS** : cliquez sur **⭐ Défaut** dans la barre d'outils (ou menu **File → Set as Default Markdown Reader**). L'app utilise `NSWorkspace.setDefaultApplication` via le compilateur Swift système — **aucune dépendance tierce**. Fonctionne uniquement sur **l'application installée** (pas en mode `npm start`).
 - Une fois défini, un double-clic sur un `.md` dans le Finder ouvre le fichier dans un nouvel onglet.

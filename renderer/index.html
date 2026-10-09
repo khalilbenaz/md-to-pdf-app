@@ -6,7 +6,7 @@
      input. No 'unsafe-inline' in script-src means neither a <script> tag nor an
      onerror= attribute smuggled into a document can run. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self'; base-uri 'none'; form-action 'none'" />
-<title>MD to PDF</title>
+<title>MD Reader</title>
 <link rel="stylesheet" href="styles.css" />
 <link rel="stylesheet" href="../node_modules/katex/dist/katex.min.css" />
 <link rel="stylesheet" id="hljs-theme" href="../node_modules/highlight.js/styles/github.min.css" />
@@ -19,7 +19,7 @@
     <button id="btn-save" title="Enregistrer (Cmd+S)">💾 Enregistrer</button>
     <button id="btn-export" title="Exporter PDF (Cmd+E)">📕 PDF</button>
     <button id="btn-export-html" title="Exporter HTML">🌐 HTML</button>
-    <button id="btn-default-reader" title="Définir MD to PDF comme lecteur Markdown par défaut">⭐ Défaut</button>
+    <button id="btn-default-reader" title="Définir MD Reader comme lecteur Markdown par défaut">⭐ Défaut</button>
     <span class="sep"></span>
     <label class="toggle"><input type="checkbox" id="toggle-editor" /> Code</label>
     <label class="toggle"><input type="checkbox" id="toggle-sync" checked /> Sync</label>

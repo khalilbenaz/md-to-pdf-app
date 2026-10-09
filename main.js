@@ -194,7 +194,7 @@ function setDefaultMac() {
       resolve({
         ok: false,
         message: 'Disponible uniquement dans l\'application installée.\n\n'
-          + 'Lancez « MD to PDF » depuis le dossier Applications, puis réessayez.',
+          + 'Lancez « MD Reader » depuis le dossier Applications, puis réessayez.',
       });
       return;
     }
@@ -243,9 +243,9 @@ else { FileHandle.standardError.write(errors.joined(separator: "; ").data(using:
       resolve({
         ok: false,
         message: 'Le compilateur Swift est introuvable.\n\n'
-          + 'Vous pouvez définir MD to PDF comme lecteur par défaut manuellement :\n'
+          + 'Vous pouvez définir MD Reader comme lecteur par défaut manuellement :\n'
           + 'clic droit sur un fichier .md → Lire les informations → Ouvrir avec → '
-          + 'MD to PDF → Tout modifier.\n\n(' + err.message + ')',
+          + 'MD Reader → Tout modifier.\n\n(' + err.message + ')',
       });
     });
     child.stderr.on('data', (d) => { stderr += d.toString(); });
@@ -253,7 +253,7 @@ else { FileHandle.standardError.write(errors.joined(separator: "; ").data(using:
       if (code === 0) {
         resolve({
           ok: true,
-          message: 'MD to PDF est maintenant le lecteur par défaut pour les fichiers '
+          message: 'MD Reader est maintenant le lecteur par défaut pour les fichiers '
             + MD_EXTENSIONS.map((e) => '.' + e).join(', ') + '.',
         });
       } else {
@@ -276,7 +276,7 @@ async function setAsDefaultMarkdownHandler() {
     return {
       ok: false,
       message: 'Windows exige de choisir l\'application par défaut manuellement.\n\n'
-        + 'Dans Paramètres → Applications par défaut, choisissez « MD to PDF » pour les fichiers .md.',
+        + 'Dans Paramètres → Applications par défaut, choisissez « MD Reader » pour les fichiers .md.',
     };
   }
   return { ok: false, message: 'Fonction non prise en charge sur cette plateforme.' };

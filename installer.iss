@@ -1,13 +1,13 @@
-; Inno Setup script for MD to PDF
+; Inno Setup script for MD Reader
 ; Builds a single-file installer that registers .md file association.
 
-#define MyAppName "MD to PDF"
+#define MyAppName "MD Reader"
 #define MyAppVersion "1.5.1"
 #define MyAppPublisher "khalilbenaz"
 #define MyAppURL "https://github.com/khalilbenaz/md-to-pdf-app"
-#define MyAppExeName "MD to PDF.exe"
+#define MyAppExeName "MD Reader.exe"
 #define MyAppId "A6F2C8B3-7E4D-4F1A-9B2C-1D3E5F6A7B8C"
-#define SourceDir "dist\MD to PDF-win32-x64"
+#define SourceDir "dist\MD Reader-win32-x64"
 
 [Setup]
 AppId={{{#MyAppId}}
@@ -22,7 +22,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 LicenseFile=LICENSE
 OutputDir=dist
-OutputBaseFilename=MD-to-PDF-Setup-{#MyAppVersion}
+OutputBaseFilename=MD-Reader-Setup-{#MyAppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -31,7 +31,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 UninstallDisplayIcon={app}\{#MyAppExeName}
-SetupIconFile=
+SetupIconFile=build\icon.ico
 ChangesAssociations=yes
 
 [Languages]

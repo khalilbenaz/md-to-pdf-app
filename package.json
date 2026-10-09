@@ -43,7 +43,7 @@
   },
   "build": {
     "appId": "com.lilou.mdtopdf",
-    "productName": "MD to PDF",
+    "productName": "MD Reader",
     "files": [
       "main.js",
       "preload.js",
@@ -98,7 +98,7 @@
       }
     },
     "win": {
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "target": [
         { "target": "nsis", "arch": ["x64"] }
       ]
@@ -109,7 +109,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "MD to PDF"
+      "shortcutName": "MD Reader"
     }
   }
 }

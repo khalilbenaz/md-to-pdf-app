@@ -700,7 +700,7 @@ newTab({ content: `---
 title: Bienvenue
 ---
 
-# 🎉 MD to PDF — v3 avec CodeMirror 6
+# 🎉 MD Reader — v3 avec CodeMirror 6
 
 Éditeur avec coloration syntaxique, numéros de ligne, pliage, multi-curseurs, et plein d'autres bonbons.
 
